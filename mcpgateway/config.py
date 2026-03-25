@@ -1377,6 +1377,20 @@ class Settings(BaseSettings):
     ip_control_cache_ttl: int = Field(default=300, ge=0, description="TTL in seconds for IP evaluation cache (0 to disable)")
     ip_control_cache_size: int = Field(default=10000, ge=1, description="Maximum number of entries in the IP evaluation cache")
     ip_control_default_priority: int = Field(default=100, ge=1, description="Default priority for new IP rules (lower = higher priority)")
+    # Policy Audit Configuration
+    policy_audit_enabled: bool = Field(default=False, description="Enable policy decision audit logging to database")
+    policy_audit_log_allowed: bool = Field(default=True, description="Log 'allow' policy decisions")
+    policy_audit_log_denied: bool = Field(default=True, description="Log 'deny' policy decisions")
+
+    # SIEM Integration Configuration
+    siem_enabled: bool = Field(default=False, description="Enable SIEM export for policy decisions")
+    siem_type: str = Field(default="splunk", description="SIEM type: splunk, elasticsearch, webhook")
+    siem_endpoint: str = Field(default="", description="SIEM endpoint URL (e.g. https://splunk:8088/services/collector)")
+    siem_token_env: str = Field(default="SIEM_TOKEN", description="Environment variable name containing the SIEM auth token")
+    siem_batch_size: int = Field(default=100, ge=1, le=10000, description="Number of records per SIEM batch")
+    siem_flush_interval_seconds: int = Field(default=5, ge=1, le=300, description="Seconds between SIEM batch flushes")
+    siem_timeout_seconds: int = Field(default=30, ge=1, le=120, description="HTTP timeout for SIEM requests in seconds")
+    siem_retry_attempts: int = Field(default=3, ge=0, le=10, description="Number of retry attempts for failed SIEM requests")
 
     # Security Logging Configuration
     # Security event logging is disabled by default for performance.
