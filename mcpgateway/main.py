@@ -99,6 +99,7 @@ from mcpgateway.plugins.framework.constants import PLUGIN_VIOLATION_CODE_MAPPING
 from mcpgateway.routers.server_well_known import router as server_well_known_router
 from mcpgateway.routers.well_known import router as well_known_router
 from mcpgateway.routes.sandbox import router as sandbox_router
+from mcpgateway.routers.gitops import router as gitops_router
 from mcpgateway.schemas import (
     A2AAgentCreate,
     A2AAgentRead,
@@ -10895,6 +10896,11 @@ if ADMIN_API_ENABLED:
         logger.info("Sandbox router mounted at /api/sandbox")
     else:
         logger.info("Sandbox feature disabled via MCPGATEWAY_SANDBOX_ENABLED=false")
+    if settings.gitops_enabled:
+        app.include_router(gitops_router, prefix="/api", tags=["Policy GitOps"])
+        logger.info("GitOps router mounted at /api/gitops")
+    else:
+        logger.info("GitOps feature disabled via GITOPS_ENABLED=false")
     app.include_router(admin_router)  # Admin routes imported from admin.py
 
     # Validate section-to-permission mapping consistency at startup
