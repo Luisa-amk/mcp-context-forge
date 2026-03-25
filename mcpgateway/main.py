@@ -3056,7 +3056,19 @@ templates = Jinja2Templates(env=jinja_env)
 if not settings.templates_auto_reload:
     logger.info("🎨 Template auto-reload disabled (production mode)")
 app.state.templates = templates
-
+# Policy Decision Point
+try:
+    # First-Party
+    from plugins.unified_pdp.pdp import PolicyDecisionPoint
+    from plugins.unified_pdp.pdp_models import EngineConfig, EngineType, PDPConfig
+    pdp_config = PDPConfig(
+        engines=[EngineConfig(name=EngineType.NATIVE, enabled=True, priority=0, settings={})]
+    )
+    app.state.pdp = PolicyDecisionPoint(pdp_config)
+    logger.info("Policy Decision Point initialised")
+except Exception as exc:
+    logger.warning("PDP init failed: %s", exc)
+    app.state.pdp = None
 # Store plugin manager in app state for access in routes
 app.state.plugin_manager = plugin_manager
 

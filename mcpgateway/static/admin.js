@@ -9139,6 +9139,30 @@ function showTab(tabName) {
                             });
                     }
                 }
+if (tabName === "policy") {
+                    const policyPanel = safeGetElement("policy-panel");
+                    if (policyPanel && policyPanel.innerHTML.trim() === "") {
+                        const rootPath = window.ROOT_PATH || "";
+                        fetchWithTimeout(
+                            `${rootPath}/admin/policy/partial`,
+                            { method: "GET", credentials: "same-origin", headers: { Accept: "text/html" } },
+                            5000,
+                        )
+                            .then((response) => {
+                                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                                return response.text();
+                            })
+                            .then((html) => { policyPanel.innerHTML = html; policyPanel.querySelectorAll("script").forEach(s => { const n = document.createElement("script"); n.textContent = s.textContent; document.body.appendChild(n); }); })
+                            .catch((error) => {
+                                console.error("Error loading policy partial:", error);
+                                policyPanel.innerHTML = `
+                                    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                                        <strong class="font-bold">Error loading policy engine:</strong>
+                                        <span class="block sm:inline">${escapeHtml(error.message)}</span>
+                                    </div>`;
+                            });
+                    }
+                }
 
                 if (tabName === "version-info") {
                     const versionPanel = safeGetElement("version-info-panel");
@@ -34043,4 +34067,139 @@ document.addEventListener("htmx:afterSettle", function (_evt) {
             }
         }
     }
+});
+
+// Policy Engine functions
+const policyRootPath = window.ROOT_PATH || "";
+
+function openAddRuleModal() {
+  document.getElementById("add-rule-modal").classList.remove("hidden");
+  document.getElementById("rule-error").classList.add("hidden");
+  ["rule-id","rule-roles","rule-actions","rule-resource-types","rule-resource-ids","rule-reason"]
+    .forEach(id => { document.getElementById(id).value = ""; });
+}
+
+function closeAddRuleModal() {
+  document.getElementById("add-rule-modal").classList.add("hidden");
+}
+
+function splitTrim(str) {
+  return str.split(",").map(s => s.trim()).filter(Boolean);
+}
+
+async function submitAddRule() {
+  const ruleId = document.getElementById("rule-id").value.trim();
+  const errEl = document.getElementById("rule-error");
+  if (!ruleId) { errEl.textContent = "Rule ID is required."; errEl.classList.remove("hidden"); return; }
+  const rule = {
+    id: ruleId,
+    roles: splitTrim(document.getElementById("rule-roles").value) || ["*"],
+    actions: splitTrim(document.getElementById("rule-actions").value) || ["*"],
+    resource_types: splitTrim(document.getElementById("rule-resource-types").value) || ["*"],
+    resource_ids: splitTrim(document.getElementById("rule-resource-ids").value) || ["*"],
+    reason: document.getElementById("rule-reason").value.trim(),
+    conditions: {}
+  };
+  try {
+    const resp = await fetch(`${policyRootPath}/admin/policy/rules`, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rule)
+    });
+    if (!resp.ok) { const data = await resp.json(); throw new Error(data.detail || resp.statusText); }
+    closeAddRuleModal();
+    reloadPolicyPartial();
+  } catch (err) { errEl.textContent = err.message; errEl.classList.remove("hidden"); }
+}
+
+async function deleteRule(ruleId) {
+  if (!confirm(`Delete rule "${ruleId}"?`)) return;
+  try {
+    const resp = await fetch(`${policyRootPath}/admin/policy/rules/${encodeURIComponent(ruleId)}`, {
+      method: "DELETE", credentials: "same-origin"
+    });
+    if (!resp.ok) throw new Error("Failed to delete rule");
+    reloadPolicyPartial();
+  } catch (err) { alert("Error: " + err.message); }
+}
+
+async function runPolicyTest() {
+  const email = document.getElementById("test-email").value.trim();
+  const rolesRaw = document.getElementById("test-roles").value.trim();
+  const action = document.getElementById("test-action").value.trim();
+  const resourceType = document.getElementById("test-resource-type").value.trim();
+  const resourceId = document.getElementById("test-resource-id").value.trim();
+  const ip = document.getElementById("test-ip").value.trim() || "127.0.0.1";
+  if (!email || !action || !resourceType || !resourceId) { alert("Please fill in Email, Action, Resource Type and Resource ID."); return; }
+  const payload = { subject_email: email, subject_roles: rolesRaw ? rolesRaw.split(",").map(s => s.trim()).filter(Boolean) : [], action, resource_type: resourceType, resource_id: resourceId, ip };
+  try {
+    const resp = await fetch(`${policyRootPath}/admin/policy/test`, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    const resultEl = document.getElementById("policy-test-result");
+    const verdictEl = document.getElementById("policy-test-verdict");
+    resultEl.classList.remove("hidden","bg-green-50","bg-red-50","border-green-200","border-red-200");
+    if (data.decision === "allow") {
+      resultEl.classList.add("bg-green-50","border-green-200");
+      verdictEl.innerHTML = '<span class="text-green-700">✅ ALLOWED</span>';
+    } else {
+      resultEl.classList.add("bg-red-50","border-red-200");
+      verdictEl.innerHTML = '<span class="text-red-700">❌ DENIED</span>';
+    }
+    document.getElementById("policy-test-reason").textContent = data.reason || "";
+    document.getElementById("policy-test-policies").textContent = data.matching_policies?.length ? "Matched: " + data.matching_policies.join(", ") : "No matching policies";
+    document.getElementById("policy-test-timing").textContent = `${data.duration_ms}ms${data.cached ? " (cached)" : ""}`;
+  } catch (err) { alert("Test error: " + err.message); }
+}
+
+function reloadPolicyPartial() {
+  const panel = document.getElementById("policy-panel");
+  if (panel) {
+    fetch(`${policyRootPath}/admin/policy/partial`, { credentials: "same-origin", headers: { Accept: "text/html" } })
+      .then(r => r.text())
+      .then(html => { panel.innerHTML = html; });
+  }
+}
+
+// Policy Engine button delegation
+document.addEventListener("click", function(e) {
+  const btn = e.target.closest("[onclick]");
+  if (!btn) return;
+  const fn = btn.getAttribute("onclick");
+  if (fn && fn.includes("openAddRuleModal")) { e.preventDefault(); openAddRuleModal(); }
+  if (fn && fn.includes("closeAddRuleModal")) { e.preventDefault(); closeAddRuleModal(); }
+  if (fn && fn.includes("submitAddRule")) { e.preventDefault(); submitAddRule(); }
+  if (fn && fn.includes("runPolicyTest")) { e.preventDefault(); runPolicyTest(); }
+  if (fn && fn.includes("deleteRule")) {
+    e.preventDefault();
+    const match = fn.match(/deleteRule\('(.+?)'\)/);
+    if (match) deleteRule(match[1]);
+  }
+});
+
+// Policy Engine event delegation
+document.addEventListener("click", function(e) {
+  const el = e.target.closest("[data-action]");
+  if (!el) return;
+  const action = el.getAttribute("data-action");
+  if (action === "open-add-rule") openAddRuleModal();
+  if (action === "close-add-rule") closeAddRuleModal();
+  if (action === "submit-add-rule") submitAddRule();
+  if (action === "run-policy-test") runPolicyTest();
+  if (action === "delete-rule") deleteRule(el.getAttribute("data-rule-id"));
+});
+
+// Policy Engine event delegation
+document.addEventListener("click", function(e) {
+  const el = e.target.closest("[data-action]");
+  if (!el) return;
+  const action = el.getAttribute("data-action");
+  if (action === "open-add-rule") openAddRuleModal();
+  if (action === "close-add-rule") closeAddRuleModal();
+  if (action === "submit-add-rule") submitAddRule();
+  if (action === "run-policy-test") runPolicyTest();
+  if (action === "delete-rule") deleteRule(el.getAttribute("data-rule-id"));
 });

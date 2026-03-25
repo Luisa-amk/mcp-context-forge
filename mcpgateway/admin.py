@@ -51,7 +51,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 import httpx
 import jwt
 import orjson
-from pydantic import SecretStr, ValidationError
+from pydantic import BaseModel, SecretStr, ValidationError
 from pydantic_core import ValidationError as CoreValidationError
 from sqlalchemy import and_, bindparam, case, cast, desc, false, func, or_, select, String, text
 from sqlalchemy.exc import IntegrityError, InvalidRequestError, OperationalError
@@ -160,6 +160,30 @@ from mcpgateway.utils.services_auth import decode_auth, encode_auth
 from mcpgateway.utils.sqlalchemy_modifier import json_contains_tag_expr
 from mcpgateway.utils.validate_signature import sign_data
 from mcpgateway.utils.verify_credentials import verify_jwt_token_cached
+
+
+class PolicyRuleCreate(BaseModel):
+    """Request model for creating a native RBAC rule."""
+
+    id: str
+    roles: List[str] = ["*"]
+    actions: List[str] = ["*"]
+    resource_types: List[str] = ["*"]
+    resource_ids: List[str] = ["*"]
+    reason: str = ""
+    conditions: Dict[str, Any] = {}
+
+
+class PolicyTestRequest(BaseModel):
+    """Request model for testing a policy access decision."""
+
+    subject_email: str
+    subject_roles: List[str] = []
+    action: str
+    resource_type: str
+    resource_id: str
+    ip: str = "127.0.0.1"
+
 
 # Conditional imports for gRPC support (only if grpcio is installed)
 try:
@@ -1954,7 +1978,7 @@ def _build_search_response(
 async def get_overview_partial(
     request: Request,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user_with_permissions),
+    user=Depends(get_current_user_with_permissions),  # pylint: disable=unused-argument
 ) -> HTMLResponse:
     """Render the overview dashboard partial HTML template.
 
@@ -19260,3 +19284,264 @@ async def get_performance_history(
     )
 
     return history.model_dump()
+
+
+@admin_router.get("/policy/partial")
+async def get_policy_partial(
+    request: Request,
+    db: Session = Depends(get_db),  # pylint: disable=unused-argument  # noqa: ARG001
+    _user=Depends(get_current_user_with_permissions),  # noqa: ARG001
+) -> HTMLResponse:
+    """Render the Policy Engine admin partial.
+
+    Args:
+        request: The HTTP request.
+        db: Database session.
+
+    Returns:
+        HTMLResponse with rendered policy partial template.
+    """
+    pdp = getattr(request.app.state, "pdp", None)
+
+    if pdp is None:
+        return HTMLResponse(
+            "<div class='p-8 text-center text-gray-500'>Policy engine not initialised. "
+            "Set up the PDP singleton in main.py startup.</div>"
+        )
+
+    # First-Party
+    from plugins.unified_pdp.pdp_models import EngineType
+
+    health = await pdp.health()
+    cache_stats = pdp.cache_stats()
+
+    # Get native rules for the table
+    native = pdp._engines.get(EngineType.NATIVE)  # pylint: disable=protected-access  # pylint: disable=protected-access
+    rules = native._rules if native else []  # pylint: disable=protected-access  # pylint: disable=protected-access
+
+    context = {
+        "request": request,
+        "health": health,
+        "engine_count": len(pdp._engines),
+        "rule_count": len(rules),
+        "rules": rules,
+        "cache_stats": cache_stats,
+    }
+    return request.app.state.templates.TemplateResponse(
+        request, "policy_partial.html", context
+    )
+
+
+@admin_router.get("/policy/rules")
+async def list_policy_rules(
+    request: Request,
+    _user=Depends(get_current_user_with_permissions),
+):
+    """Return all native RBAC rules as JSON.
+
+    Args:
+        request: The HTTP request.
+
+    Returns:
+        JSONResponse with list of rules.
+
+    Raises:
+        HTTPException: If policy engine is not initialised.
+    """
+    # First-Party
+    from plugins.unified_pdp.pdp_models import EngineType
+
+    pdp = getattr(request.app.state, "pdp", None)
+    if pdp is None:
+        raise HTTPException(status_code=503, detail="Policy engine not initialised")
+    native = pdp._engines.get(EngineType.NATIVE)  # pylint: disable=protected-access  # pylint: disable=protected-access
+    rules = native._rules if native else []  # pylint: disable=protected-access  # pylint: disable=protected-access
+    return JSONResponse({"rules": rules, "total": len(rules)})
+
+
+@admin_router.post("/policy/rules", status_code=201)
+async def add_policy_rule(
+    request: Request,
+    rule: PolicyRuleCreate,
+    _user=Depends(get_current_user_with_permissions),
+):
+    """Add a rule to the native RBAC engine at runtime.
+
+    Args:
+        request: The HTTP request.
+        rule: The rule to add.
+
+    Returns:
+        JSONResponse confirming rule creation.
+
+    Raises:
+        HTTPException: If engine not initialised or rule ID already exists.
+    """
+    # First-Party
+    from plugins.unified_pdp.pdp_models import EngineType
+
+    pdp = getattr(request.app.state, "pdp", None)
+    if pdp is None:
+        raise HTTPException(status_code=503, detail="Policy engine not initialised")
+    native = pdp._engines.get(EngineType.NATIVE)  # pylint: disable=protected-access  # pylint: disable=protected-access
+    if native is None:
+        raise HTTPException(status_code=503, detail="Native RBAC engine not enabled")
+
+    # Reject duplicate IDs
+    existing_ids = {r.get("id") for r in native._rules}  # pylint: disable=protected-access
+    if rule.id in existing_ids:
+        raise HTTPException(status_code=409, detail=f"Rule '{rule.id}' already exists")
+
+    rule_dict = {
+        "id": rule.id,
+        "roles": rule.roles,
+        "actions": rule.actions,
+        "resource_types": rule.resource_types,
+        "resource_ids": rule.resource_ids,
+        "conditions": rule.conditions,
+    }
+    if rule.reason:
+        rule_dict["reason"] = rule.reason
+
+    native.add_rule(rule_dict)
+    return JSONResponse({"status": "created", "id": rule.id}, status_code=201)
+
+
+@admin_router.delete("/policy/rules/{rule_id}", status_code=200)
+async def delete_policy_rule(
+    rule_id: str,
+    request: Request,
+    _user=Depends(get_current_user_with_permissions),
+):
+    """Remove a rule from the native RBAC engine by ID.
+
+    Args:
+        rule_id: The ID of the rule to remove.
+        request: The HTTP request.
+
+    Returns:
+        JSONResponse confirming rule deletion.
+
+    Raises:
+        HTTPException: If engine not initialised or rule not found.
+    """
+    # First-Party
+    from plugins.unified_pdp.pdp_models import EngineType
+
+    pdp = getattr(request.app.state, "pdp", None)
+    if pdp is None:
+        raise HTTPException(status_code=503, detail="Policy engine not initialised")
+    native = pdp._engines.get(EngineType.NATIVE)  # pylint: disable=protected-access  # pylint: disable=protected-access
+    if native is None:
+        raise HTTPException(status_code=503, detail="Native RBAC engine not enabled")
+
+    removed = native.remove_rule(rule_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Rule '{rule_id}' not found")
+    return JSONResponse({"status": "deleted", "id": rule_id})
+
+
+@admin_router.post("/policy/test")
+async def test_policy_access(
+    request: Request,
+    body: PolicyTestRequest,
+    _user=Depends(get_current_user_with_permissions),
+):
+    """Simulate an access decision through the full PDP pipeline.
+
+    Args:
+        request: The HTTP request.
+        body: The access test request body.
+
+    Returns:
+        JSONResponse with access decision and reasoning.
+
+    Raises:
+        HTTPException: If policy engine is not initialised.
+    """
+    # First-Party
+    from plugins.unified_pdp.pdp_models import Context, Resource, Subject
+
+    pdp = getattr(request.app.state, "pdp", None)
+    if pdp is None:
+        raise HTTPException(status_code=503, detail="Policy engine not initialised")
+
+    subject = Subject(email=body.subject_email, roles=body.subject_roles)
+    resource = Resource(id=body.resource_id, type=body.resource_type)
+    context = Context(ip=body.ip)
+
+    decision = await pdp.check_access(subject, body.action, resource, context)
+
+    return JSONResponse({
+        "decision": decision.decision.value,
+        "reason": decision.reason,
+        "matching_policies": decision.matching_policies,
+        "duration_ms": decision.duration_ms,
+        "cached": decision.cached,
+        "engine_decisions": [
+            {
+                "engine": ed.engine.value,
+                "decision": ed.decision.value,
+                "reason": ed.reason,
+                "matching_policies": ed.matching_policies,
+            }
+            for ed in decision.engine_decisions
+        ],
+    })
+
+
+@admin_router.get("/policy/health")
+async def policy_health(
+    request: Request,
+    _user=Depends(get_current_user_with_permissions),
+):
+    """Return PDP health report as JSON.
+
+    Args:
+        request: The HTTP request.
+
+    Returns:
+        JSONResponse with engine health statuses.
+
+    Raises:
+        HTTPException: If policy engine is not initialised.
+    """
+    pdp = getattr(request.app.state, "pdp", None)
+    if pdp is None:
+        raise HTTPException(status_code=503, detail="Policy engine not initialised")
+
+    health = await pdp.health()
+    return JSONResponse({
+        "healthy": health.healthy,
+        "engines": [
+            {
+                "engine": e.engine.value,
+                "status": e.status.value,
+                "latency_ms": e.latency_ms,
+                "detail": e.detail,
+            }
+            for e in health.engines
+        ],
+    })
+
+
+@admin_router.get("/policy/cache/stats")
+async def policy_cache_stats(
+    request: Request,
+    _user=Depends(get_current_user_with_permissions),
+):
+    """Return PDP cache statistics.
+
+    Args:
+        request: The HTTP request.
+
+    Returns:
+        JSONResponse with cache hit/miss stats.
+
+    Raises:
+        HTTPException: If policy engine is not initialised.
+    """
+    pdp = getattr(request.app.state, "pdp", None)
+    if pdp is None:
+        raise HTTPException(status_code=503, detail="Policy engine not initialised")
+    return JSONResponse(pdp.cache_stats())
