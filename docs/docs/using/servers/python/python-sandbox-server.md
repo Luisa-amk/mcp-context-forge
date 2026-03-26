@@ -44,7 +44,7 @@ vi .env
 # Stdio mode (for Claude Desktop, IDEs)
 make dev
 
-# HTTP mode (via ContextForge)
+# HTTP mode (via MCP Gateway)
 make serve-http
 ```
 
@@ -226,13 +226,13 @@ Get sandbox capabilities and configuration.
 
 ## Integration
 
-### With ContextForge
+### With MCP Gateway
 
 ```bash
 # Start the Python sandbox server via HTTP
 make serve-http
 
-# Register with ContextForge
+# Register with MCP Gateway
 curl -X POST http://localhost:8000/gateways \
   -H "Content-Type: application/json" \
   -d '{
