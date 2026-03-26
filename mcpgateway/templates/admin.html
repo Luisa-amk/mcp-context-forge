@@ -709,6 +709,7 @@
             </a>
           </div>
           {% endif %}
+          {% endif %}
 
           <!-- Organization Section -->
           {% if email_auth_enabled and ('teams' not in hidden_sections or 'users' not in hidden_sections or 'tokens' not in hidden_sections) %}
@@ -1703,6 +1704,7 @@
       <div id="plugins-panel" class="tab-panel hidden"></div>
 {% if is_admin and 'policy' not in hidden_sections %}
       <div id="policy-panel" class="tab-panel hidden"></div>
+      {% endif %}
       {% endif %}
 
       <!-- Compliance Panel -->
