@@ -19286,6 +19286,28 @@ async def get_performance_history(
     return history.model_dump()
 
 
+@admin_router.get("/compliance/partial")
+async def get_compliance_partial(
+    request: Request,
+    _user=Depends(get_current_user_with_permissions),  # noqa: ARG001
+) -> HTMLResponse:
+    """Render the combined Compliance & Audit dashboard partial."""
+    return request.app.state.templates.TemplateResponse(
+        request, "compliance_partial.html", {"request": request}
+    )
+
+
+@admin_router.get("/audit/partial")
+async def get_audit_partial(
+    request: Request,
+    _user=Depends(get_current_user_with_permissions),  # noqa: ARG001
+) -> HTMLResponse:
+    """Render the Audit Trail partial (loads combined dashboard)."""
+    return request.app.state.templates.TemplateResponse(
+        request, "audit_partial.html", {"request": request}
+    )
+
+
 @admin_router.get("/policy/partial")
 async def get_policy_partial(
     request: Request,
