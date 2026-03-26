@@ -404,7 +404,44 @@ class SandboxService:
         """
         draft = self.db.query(PolicyDraft).filter(PolicyDraft.id == policy_draft_id).first()
         if not draft:
-            raise ValueError(f"Policy draft not found: {policy_draft_id}")
+            # Fallback: create a config that mirrors the live PDP with its current rules
+            logger.info("Policy draft %s not found, using live PDP configuration", policy_draft_id)
+            from plugins.unified_pdp.pdp_models import (  # noqa: E402
+                CombinationMode,
+                Decision,
+                EngineConfig,
+                EngineType,
+            )
+
+            # Copy live rules from the running PDP if available
+            live_rules = []
+            try:
+                from fastapi import Request  # noqa: E402
+
+                app_state = getattr(self, "_app_state", None)
+                if app_state is None:
+                    # Try to get from the current app
+                    import mcpgateway.main as _main_mod  # noqa: E402
+
+                    app_state = getattr(_main_mod, "app", None)
+                    if app_state:
+                        app_state = app_state.state
+
+                pdp_live = getattr(app_state, "pdp", None) if app_state else None
+                if pdp_live:
+                    native = pdp_live._engines.get(EngineType.NATIVE)  # noqa: SLF001
+                    if native:
+                        live_rules = list(native._rules)  # noqa: SLF001
+                        logger.info("Copied %d live rules into sandbox", len(live_rules))
+            except Exception as exc:
+                logger.debug("Could not copy live rules: %s", exc)
+
+            engine_config = {"rules": live_rules} if live_rules else {}
+            return PDPConfig(
+                engines=[EngineConfig(type=EngineType.NATIVE, enabled=True, priority=0, config=engine_config)],
+                combination_mode=CombinationMode.ALL_MUST_ALLOW,
+                default_decision=Decision.DENY,
+            )
 
         logger.info("Loaded policy draft %s (%s) from database", policy_draft_id, draft.name)
 
