@@ -17,17 +17,18 @@ from __future__ import annotations
 
 # Standard
 import logging
-import re
 from typing import Optional
 
 # Third-Party
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
+from sqlalchemy.orm import Session
 
 # First-Party
 from mcpgateway.auth import get_current_user
 
 # Local
+from ..db import get_db
 from ..schemas import (
     BatchSimulateRequest,
     BatchSimulationResult,
@@ -39,13 +40,9 @@ from ..services.sandbox_service import get_sandbox_service, SandboxService
 
 logger = logging.getLogger(__name__)
 
-# Service version constant - used in health check and info endpoints
-SANDBOX_SERVICE_VERSION = "1.0.0"
-SANDBOX_SERVICE_NAME = "Policy Testing Sandbox"
-
 # Create router with prefix and tags
 router = APIRouter(
-    prefix="",
+    prefix="/sandbox",
     tags=["Policy Sandbox"],
     responses={
         404: {"description": "Policy draft or test suite not found"},
@@ -58,6 +55,88 @@ router = APIRouter(
 # Core Simulation Endpoints
 # ---------------------------------------------------------------------------
 
+#
+# @router.post(
+#     "/simulate",
+#     response_model=SimulationResult,
+#     status_code=status.HTTP_200_OK,
+#     summary="Simulate single test case",
+#     description="""
+#     Simulate a single test case against a policy draft.
+#
+#     This endpoint creates an isolated PDP instance with the draft policy,
+#     evaluates the test case, and returns detailed results including whether
+#     the test passed and a full explanation of the decision.
+#
+#     **Use case**: Test a specific access scenario before deploying a policy change.
+#
+#     **Example**:
+#     ```json
+#     {
+#         "policy_draft_id": "draft-123",
+#         "test_case": {
+#             "subject": {"email": "dev@example.com", "roles": ["developer"]},
+#             "action": "tools.invoke",
+#             "resource": {"type": "tool", "id": "db-query"},
+#             "expected_decision": "allow"
+#         },
+#         "include_explanation": true
+#     }
+#     ```
+#     """,
+# )
+# async def simulate_single_request(
+#     request: SimulateRequest,
+#     sandbox: SandboxService = Depends(get_sandbox_service),
+# ) -> SimulationResult:
+#     """Simulate a single test case against a policy draft.
+#
+#     Args:
+#         request: Simulation request containing policy draft ID and test case
+#         sandbox: Injected sandbox service
+#
+#     Returns:
+#         SimulationResult with actual vs expected decision, timing, and explanation
+#
+#     Raises:
+#         HTTPException: 404 if policy draft not found, 500 on evaluation error
+#     """
+#     logger.info(
+#         "Simulating single test case against policy draft %s",
+#         request.policy_draft_id,
+#     )
+#
+#     try:
+#         result = await sandbox.simulate_single(
+#             policy_draft_id=request.policy_draft_id,
+#             test_case=request.test_case,
+#             include_explanation=request.include_explanation,
+#         )
+#
+#         logger.info(
+#             "Simulation complete: test_case=%s, passed=%s, duration=%.1fms",
+#             result.test_case_id,
+#             result.passed,
+#             result.execution_time_ms,
+#         )
+#
+#         return result
+#
+#     except ValueError as e:
+#         logger.error("Policy draft not found: %s", e)
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail=f"Policy draft not found: {request.policy_draft_id}",
+#         ) from e
+#
+#     except Exception as e:
+#         logger.error("Simulation failed: %s", e, exc_info=True)
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Simulation failed: {str(e)}",
+#         ) from e
+#
+
 
 @router.post(
     "/batch",
@@ -66,12 +145,12 @@ router = APIRouter(
     summary="Execute batch test cases",
     description="""
     Execute multiple test cases in batch against a policy draft.
-
+    
     Tests can be executed in parallel (faster) or sequentially (deterministic).
     Returns aggregated statistics and individual results.
-
+    
     **Use case**: Run a full test suite before deploying a policy change.
-
+    
     **Example**:
     ```json
     {
@@ -88,14 +167,12 @@ router = APIRouter(
 async def run_batch_tests(
     request: BatchSimulateRequest,
     sandbox: SandboxService = Depends(get_sandbox_service),
-    current_user=Depends(get_current_user),
 ) -> BatchSimulationResult:
     """Execute multiple test cases in batch.
 
     Args:
         request: Batch simulation request with test cases
         sandbox: Injected sandbox service
-        current_user: Authenticated user from JWT dependency
 
     Returns:
         BatchSimulationResult with summary statistics and individual results
@@ -149,12 +226,12 @@ async def run_batch_tests(
     summary="Run regression tests",
     description="""
     Run regression tests by replaying historical production decisions.
-
+    
     Fetches historical decisions from audit logs and replays them against
     the policy draft to identify regressions (unintended behavior changes).
-
+    
     **Use case**: Verify a policy change doesn't break existing access patterns.
-
+    
     **Example**:
     ```json
     {
@@ -164,7 +241,7 @@ async def run_batch_tests(
         "sample_size": 1000
     }
     ```
-
+    
     Returns a report with:
     - Total decisions replayed
     - Number of regressions found
@@ -175,14 +252,12 @@ async def run_batch_tests(
 async def run_regression_tests(
     request: RegressionTestRequest,
     sandbox: SandboxService = Depends(get_sandbox_service),
-    current_user=Depends(get_current_user),
 ) -> RegressionReport:
     """Run regression tests against historical decisions.
 
     Args:
         request: Regression test request with parameters
         sandbox: Injected sandbox service
-        current_user: Authenticated user from JWT dependency
 
     Returns:
         RegressionReport with comparisons and regression analysis
@@ -244,9 +319,9 @@ async def run_regression_tests(
     summary="Create test suite",
     description="""
     Create a new test suite with a collection of test cases.
-
+    
     Test suites allow organizing related test cases together for reuse.
-
+    
     **Example**:
     ```json
     {
@@ -260,15 +335,13 @@ async def run_regression_tests(
 )
 async def create_test_suite(
     test_suite: TestSuite,
-    sandbox: SandboxService = Depends(get_sandbox_service),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> TestSuite:
     """Create a new test suite.
 
     Args:
         test_suite: Test suite to create
-        sandbox: Injected sandbox service
-        current_user: Authenticated user
+        db: Database session
 
     Returns:
         Created test suite with generated ID
@@ -279,8 +352,10 @@ async def create_test_suite(
     logger.info("Creating test suite: %s", test_suite.name)
 
     try:
-        created_by = getattr(current_user, "email", None) or getattr(current_user, "username", "unknown")
-        return sandbox.create_test_suite(test_suite, created_by=created_by)
+        # TODO: Implement database storage
+        # For now, just return the test suite with generated ID
+        logger.warning("Test suite storage not implemented - returning input")
+        return test_suite
 
     except Exception as e:
         logger.error("Failed to create test suite: %s", e, exc_info=True)
@@ -299,15 +374,13 @@ async def create_test_suite(
 )
 async def get_test_suite(
     suite_id: str,
-    sandbox: SandboxService = Depends(get_sandbox_service),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> TestSuite:
     """Get a test suite by ID.
 
     Args:
         suite_id: Test suite ID
-        sandbox: Injected sandbox service
-        current_user: Authenticated user
+        db: Database session
 
     Returns:
         Test suite
@@ -318,13 +391,12 @@ async def get_test_suite(
     logger.info("Fetching test suite: %s", suite_id)
 
     try:
-        suite = sandbox.get_test_suite(suite_id)
-        if not suite:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Test suite not found: {suite_id}",
-            )
-        return suite
+        # TODO: Implement database query
+        logger.warning("Test suite retrieval not implemented")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Test suite not found: {suite_id}",
+        )
 
     except HTTPException:
         raise
@@ -345,15 +417,13 @@ async def get_test_suite(
 )
 async def list_test_suites(
     tags: Optional[str] = None,
-    sandbox: SandboxService = Depends(get_sandbox_service),
-    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> list[TestSuite]:
     """List all test suites.
 
     Args:
         tags: Comma-separated tags to filter by
-        sandbox: Injected sandbox service
-        current_user: Authenticated user
+        db: Database session
 
     Returns:
         List of test suites
@@ -364,8 +434,9 @@ async def list_test_suites(
     logger.info("Listing test suites, tags=%s", tags)
 
     try:
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-        return sandbox.list_test_suites(tags=tag_list)
+        # TODO: Implement database query
+        logger.warning("Test suite listing not implemented")
+        return []
 
     except Exception as e:
         logger.error("Failed to list test suites: %s", e, exc_info=True)
@@ -387,11 +458,7 @@ async def list_test_suites(
     description="Check if the sandbox service is operational.",
 )
 async def health_check() -> dict:
-    """Liveness health check endpoint.
-
-    This is a liveness-only probe: it verifies the sandbox service is
-    responsive. It does not perform deep dependency checks (e.g. database
-    connectivity or PDP engine availability).
+    """Health check endpoint.
 
     Returns:
         Health status dictionary
@@ -399,8 +466,7 @@ async def health_check() -> dict:
     return {
         "status": "healthy",
         "service": "sandbox",
-        "version": SANDBOX_SERVICE_VERSION,
-        "check_type": "liveness",
+        "version": "1.0.0",
     }
 
 
@@ -417,8 +483,8 @@ async def service_info() -> dict:
         Service information dictionary
     """
     return {
-        "name": SANDBOX_SERVICE_NAME,
-        "version": SANDBOX_SERVICE_VERSION,
+        "name": "Policy Testing Sandbox",
+        "version": "1.0.0",
         "capabilities": [
             "single_simulation",
             "batch_simulation",
@@ -434,7 +500,11 @@ async def service_info() -> dict:
     }
 
 
-@router.post("/simulate", response_class=HTMLResponse)
+# Add this to mcpgateway/routes/sandbox.py
+# Place after the existing POST /sandbox/simulate endpoint
+
+
+@router.post("/sandbox/simulate", response_class=HTMLResponse)
 async def simulate_form_submit(
     request: Request,
     current_user=Depends(get_current_user),
@@ -453,48 +523,14 @@ async def simulate_form_submit(
 
     This endpoint is called via HTMX when the simulation form is submitted.
     It returns HTML that will be injected into the results container.
-
-    Args:
-        request: The incoming HTTP request
-        policy_draft_id: ID of the policy draft to test
-        subject_email: Email of the subject being tested
-        subject_roles: Comma-separated roles for the subject
-        subject_team_id: Optional team ID for the subject
-        action: The action being tested (e.g. 'tools.invoke')
-        resource_type: Type of resource (e.g. 'tool', 'prompt')
-        resource_id: ID of the resource being accessed
-        resource_server: Optional server hosting the resource
-        expected_decision: Expected outcome ('allow' or 'deny')
-        sandbox: Injected sandbox service
-        current_user: Authenticated user from JWT dependency
-
-    Returns:
-        TemplateResponse with simulation results or error HTML
-
-    Raises:
-        HTTPException: Re-raised if caught during processing
     """
     try:
-        # Validate and sanitize form inputs
-        _validate_sandbox_form_input(policy_draft_id, "policy_draft_id")
-        _validate_sandbox_form_input(subject_email, "subject_email")
-        _validate_sandbox_form_input(action, "action")
-        _validate_sandbox_form_input(resource_type, "resource_type")
-        _validate_sandbox_form_input(resource_id, "resource_id")
-        _validate_sandbox_form_input(expected_decision, "expected_decision")
-        if subject_team_id:
-            _validate_sandbox_form_input(subject_team_id, "subject_team_id")
-        if resource_server:
-            _validate_sandbox_form_input(resource_server, "resource_server")
-
-        # Parse and validate roles (comma-separated)
+        # Parse roles (comma-separated)
         roles = [r.strip() for r in subject_roles.split(",") if r.strip()]
-        for role in roles:
-            _validate_sandbox_form_input(role, "role")
 
         # Create test case from form data
         # First-Party
-        from mcpgateway.schemas import TestCase
+        from mcpgateway.schemas.sandbox import TestCase
         from plugins.unified_pdp.pdp_models import Context, Decision, Resource, Subject
 
         test_case = TestCase(
@@ -524,50 +560,6 @@ async def simulate_form_submit(
         # Render template response with auto-escaping
         return request.app.state.templates.TemplateResponse(request, "sandbox_simulate_results.html", {"result": result})
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.exception("Error running simulation")
         return request.app.state.templates.TemplateResponse(request, "sandbox_simulate_error.html", {"error_message": str(e)}, status_code=500)
-
-
-# ---------------------------------------------------------------------------
-# Input Validation Helpers
-# ---------------------------------------------------------------------------
-
-# Regex pattern for allowed sandbox form input characters:
-# alphanumeric, hyphens, underscores, dots, @, literal spaces (not \s to exclude \n, \r, \t)
-_SANDBOX_INPUT_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.@ ]+$")
-_SANDBOX_INPUT_MAX_LENGTH = 256
-
-
-def _validate_sandbox_form_input(value: str, field_name: str) -> None:
-    """Validate and sanitize a sandbox form input value.
-
-    Ensures the value is non-empty, within length limits, and contains
-    only safe characters to prevent injection attacks.
-
-    Args:
-        value: The input string to validate
-        field_name: Name of the field (for error messages)
-
-    Raises:
-        HTTPException: 422 if validation fails
-    """
-    if not value or not value.strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Field '{field_name}' must not be empty",
-        )
-
-    if len(value) > _SANDBOX_INPUT_MAX_LENGTH:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Field '{field_name}' exceeds maximum length of {_SANDBOX_INPUT_MAX_LENGTH}",
-        )
-
-    if not _SANDBOX_INPUT_PATTERN.match(value):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Field '{field_name}' contains invalid characters. Only alphanumeric, hyphens, underscores, dots, @, and spaces are allowed.",
-        )

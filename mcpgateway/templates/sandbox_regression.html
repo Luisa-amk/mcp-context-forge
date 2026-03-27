@@ -30,7 +30,7 @@
         Regression Test Configuration
       </h3>
     </div>
-
+    
     <form id="regressionForm" class="p-6 space-y-6">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <!-- Policy Draft -->
@@ -189,19 +189,19 @@
           <p class="text-sm text-gray-500 dark:text-gray-400">Total Decisions</p>
           <p class="text-3xl font-bold text-gray-900 dark:text-white" x-text="results?.totalDecisions || 0"></p>
         </div>
-
+        
         <!-- Matching -->
         <div class="text-center">
           <p class="text-sm text-gray-500 dark:text-gray-400">Matching</p>
           <p class="text-3xl font-bold text-green-600" x-text="results?.matchingDecisions || 0"></p>
         </div>
-
+        
         <!-- Regressions -->
         <div class="text-center">
           <p class="text-sm text-gray-500 dark:text-gray-400">Regressions</p>
           <p class="text-3xl font-bold text-red-600" x-text="results?.differentDecisions || 0"></p>
         </div>
-
+        
         <!-- Regression Rate -->
         <div class="text-center">
           <p class="text-sm text-gray-500 dark:text-gray-400">Regression Rate</p>

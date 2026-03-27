@@ -12,10 +12,8 @@ executes test cases, and compares results against expectations.
 
 Related to Issue #2226: Policy testing and simulation sandbox
 
-Database integration:
-- PolicyDraft table stores draft policy configurations.
-- SandboxTestSuite table persists reusable test suites.
-- PermissionAuditLog table provides historical decisions for regression testing.
+NOTE: Database integration uses mock data for now. See TODO comments for
+future database implementation.
 """
 
 # Future
@@ -33,13 +31,17 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 # First-Party
-from mcpgateway.config import settings
-from mcpgateway.db import get_db, PermissionAuditLog, PolicyDraft, SandboxTestSuite
+from mcpgateway.db import get_db
 from plugins.unified_pdp.pdp import PolicyDecisionPoint
 from plugins.unified_pdp.pdp_models import (
+    CacheConfig,
+    CombinationMode,
     Context,
     Decision,
+    EngineConfig,
+    EngineType,
     PDPConfig,
+    PerformanceConfig,
     Resource,
     Subject,
 )
@@ -52,7 +54,6 @@ from ..schemas import (
     RegressionReport,
     SimulationResult,
     TestCase,
-    TestSuite,
 )
 
 logger = logging.getLogger(__name__)
@@ -133,17 +134,13 @@ class SandboxService:
         pdp = self._create_sandbox_pdp(draft_config)
 
         try:
-            # 3. Evaluate the test case (with configurable timeout)
-            timeout_seconds = settings.mcpgateway_sandbox_timeout_per_case_ms / 1000.0
+            # 3. Evaluate the test case
             start_time = time.perf_counter()
-            actual_decision_obj = await asyncio.wait_for(
-                pdp.check_access(
-                    subject=test_case.subject,
-                    action=test_case.action,
-                    resource=test_case.resource,
-                    context=test_case.context or Context(),
-                ),
-                timeout=timeout_seconds,
+            actual_decision_obj = await pdp.check_access(
+                subject=test_case.subject,
+                action=test_case.action,
+                resource=test_case.resource,
+                context=test_case.context or Context(),
             )
             execution_time = (time.perf_counter() - start_time) * 1000
 
@@ -187,10 +184,7 @@ class SandboxService:
 
         finally:
             # 7. Cleanup PDP resources
-            try:
-                await pdp.close()
-            except Exception as close_err:
-                logger.warning("Error closing sandbox PDP instance: %s", close_err)
+            await pdp.close()
 
     async def run_batch(
         self,
@@ -213,9 +207,6 @@ class SandboxService:
         Returns:
             BatchSimulationResult with summary statistics and individual results
 
-        Raises:
-            ValueError: If batch size exceeds the configured maximum
-
         Example:
             >>> results = await service.run_batch(
             ...     "draft-123",
@@ -231,11 +222,6 @@ class SandboxService:
         )
 
         started_at = datetime.now(timezone.utc)
-
-        # Enforce max test cases per run from configuration
-        max_cases = settings.mcpgateway_sandbox_max_test_cases_per_run
-        if len(test_cases) > max_cases:
-            raise ValueError(f"Batch size {len(test_cases)} exceeds maximum of {max_cases} " f"(MCPGATEWAY_SANDBOX_MAX_TEST_CASES_PER_RUN)")
 
         # Execute tests (parallel or sequential)
         if parallel_execution:
@@ -388,10 +374,7 @@ class SandboxService:
     # ---------------------------------------------------------------------------
 
     async def _load_draft_config(self, policy_draft_id: str) -> PDPConfig:
-        """Load policy draft configuration from the database.
-
-        Queries the ``policy_drafts`` table for the given ID and converts the
-        stored JSON configuration into a ``PDPConfig`` instance.
+        """Load policy draft configuration from database.
 
         Args:
             policy_draft_id: ID of the policy draft
@@ -400,58 +383,52 @@ class SandboxService:
             PDPConfig for the draft policy
 
         Raises:
-            ValueError: If draft not found in the database
+            ValueError: If draft not found
         """
-        draft = self.db.query(PolicyDraft).filter(PolicyDraft.id == policy_draft_id).first()
-        if not draft:
-            # Fallback: create a config that mirrors the live PDP with its current rules
-            logger.info("Policy draft %s not found, using live PDP configuration", policy_draft_id)
-            from plugins.unified_pdp.pdp_models import (  # noqa: E402
-                CombinationMode,
-                Decision,
-                EngineConfig,
-                EngineType,
-            )
+        # TODO: Replace with actual database query when policy_drafts table exists
+        # Example query:
+        # draft = self.db.query(PolicyDraft).filter_by(id=policy_draft_id).first()
+        # if not draft:
+        #     raise ValueError(f"Policy draft not found: {policy_draft_id}")
+        # return self._convert_draft_to_config(draft)
 
-            # Copy live rules from the running PDP if available
-            live_rules = []
-            try:
-                from fastapi import Request  # noqa: E402
+        logger.info(
+            "Loading policy draft %s (using mock data - database table not yet implemented)",
+            policy_draft_id,
+        )
 
-                app_state = getattr(self, "_app_state", None)
-                if app_state is None:
-                    # Try to get from the current app
-                    import mcpgateway.main as _main_mod  # noqa: E402
+        # Mock configuration for testing
+        # This simulates different policy scenarios based on draft ID
+        if policy_draft_id == "draft-permissive":
+            # Permissive policy - allows most actions
+            combination_mode = CombinationMode.ANY_ALLOW
+            default_decision = Decision.ALLOW
+        elif policy_draft_id == "draft-restrictive":
+            # Restrictive policy - requires all engines to allow
+            combination_mode = CombinationMode.ALL_MUST_ALLOW
+            default_decision = Decision.DENY
+        else:
+            # Default balanced policy
+            combination_mode = CombinationMode.ALL_MUST_ALLOW
+            default_decision = Decision.DENY
 
-                    app_state = getattr(_main_mod, "app", None)
-                    if app_state:
-                        app_state = app_state.state
-
-                pdp_live = getattr(app_state, "pdp", None) if app_state else None
-                if pdp_live:
-                    native = pdp_live._engines.get(EngineType.NATIVE)  # noqa: SLF001
-                    if native:
-                        live_rules = list(native._rules)  # noqa: SLF001
-                        logger.info("Copied %d live rules into sandbox", len(live_rules))
-            except Exception as exc:
-                logger.debug("Could not copy live rules: %s", exc)
-
-            engine_config = {"rules": live_rules} if live_rules else {}
-            return PDPConfig(
-                engines=[EngineConfig(type=EngineType.NATIVE, enabled=True, priority=0, config=engine_config)],
-                combination_mode=CombinationMode.ALL_MUST_ALLOW,
-                default_decision=Decision.DENY,
-            )
-
-        logger.info("Loaded policy draft %s (%s) from database", policy_draft_id, draft.name)
-
-        try:
-            config = PDPConfig(**draft.config)
-        except Exception as exc:
-            logger.error("Invalid configuration in policy draft %s: %s", policy_draft_id, exc)
-            raise ValueError(f"Invalid configuration in policy draft {policy_draft_id}: {exc}") from exc
-
-        return config
+        return PDPConfig(
+            engines=[
+                EngineConfig(
+                    name=EngineType.NATIVE,
+                    enabled=True,
+                    priority=1,
+                    settings={},
+                ),
+            ],
+            combination_mode=combination_mode,
+            default_decision=default_decision,
+            cache=CacheConfig(enabled=False),  # IMPORTANT: Disable cache for testing!
+            performance=PerformanceConfig(
+                timeout_ms=1000,
+                parallel_evaluation=True,
+            ),
+        )
 
     def _create_sandbox_pdp(self, config: PDPConfig) -> PolicyDecisionPoint:
         """Create an isolated PDP instance for sandbox testing.
@@ -472,10 +449,7 @@ class SandboxService:
         policy_draft_id: str,
         test_cases: List[TestCase],
     ) -> List[SimulationResult]:
-        """Execute test cases in parallel with concurrency limiting.
-
-        Respects ``MCPGATEWAY_SANDBOX_MAX_CONCURRENT_TESTS`` to avoid
-        overwhelming the system with too many concurrent evaluations.
+        """Execute test cases in parallel.
 
         Args:
             policy_draft_id: Policy draft to test
@@ -484,21 +458,7 @@ class SandboxService:
         Returns:
             List of simulation results
         """
-        semaphore = asyncio.Semaphore(settings.mcpgateway_sandbox_max_concurrent_tests)
-
-        async def _limited(tc: TestCase) -> SimulationResult:
-            """Run a single test case under the concurrency semaphore.
-
-            Args:
-                tc: Test case to execute
-
-            Returns:
-                Simulation result for the test case
-            """
-            async with semaphore:
-                return await self.simulate_single(policy_draft_id, tc, include_explanation=False)
-
-        tasks = [_limited(tc) for tc in test_cases]
+        tasks = [self.simulate_single(policy_draft_id, tc, include_explanation=False) for tc in test_cases]
         return await asyncio.gather(*tasks)
 
     async def _execute_sequential(
@@ -529,74 +489,77 @@ class SandboxService:
         filter_by_subject: Optional[str],
         filter_by_action: Optional[str],
     ) -> List[HistoricalDecision]:
-        """Fetch historical production decisions from the PermissionAuditLog.
-
-        Queries the ``permission_audit_log`` table for recent permission
-        checks and converts them into ``HistoricalDecision`` objects that
-        can be replayed against a policy draft.
+        """Fetch historical production decisions for regression testing.
 
         Args:
-            baseline_policy_version: Label for the baseline policy version
-            replay_last_days: Number of days of history to query
-            sample_size: Maximum number of decisions to return
-            filter_by_subject: Optional filter by user email
-            filter_by_action: Optional filter by permission/action string
+            baseline_policy_version: Policy version to fetch decisions for
+            replay_last_days: Number of days of history
+            sample_size: Maximum number of decisions
+            filter_by_subject: Optional subject filter
+            filter_by_action: Optional action filter
 
         Returns:
             List of historical decisions
         """
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=replay_last_days)
-
-        query = self.db.query(PermissionAuditLog).filter(
-            PermissionAuditLog.timestamp >= cutoff_date,
-        )
-
-        if filter_by_subject:
-            query = query.filter(PermissionAuditLog.user_email == filter_by_subject)
-        if filter_by_action:
-            query = query.filter(PermissionAuditLog.permission == filter_by_action)
-
-        audit_records = query.order_by(PermissionAuditLog.timestamp.desc()).limit(sample_size).all()
+        # TODO: Replace with actual database query when audit tables are properly set up
+        # Example query using AuditTrail table:
+        # cutoff_date = datetime.now(timezone.utc) - timedelta(days=replay_last_days)
+        #
+        # query = self.db.query(AuditTrail).filter(
+        #     AuditTrail.timestamp >= cutoff_date,
+        #     AuditTrail.action.like('%policy%'),  # Filter for policy decisions
+        # )
+        #
+        # if filter_by_subject:
+        #     query = query.filter(AuditTrail.user_email == filter_by_subject)
+        # if filter_by_action:
+        #     query = query.filter(AuditTrail.action == filter_by_action)
+        #
+        # audit_records = query.order_by(AuditTrail.timestamp.desc()).limit(sample_size).all()
+        #
+        # return [self._convert_audit_to_historical(record) for record in audit_records]
 
         logger.info(
-            "Fetched %d historical decisions from permission_audit_log (cutoff=%s)",
-            len(audit_records),
-            cutoff_date.isoformat(),
+            "Fetching historical decisions for %s (using mock data - database query not yet implemented)",
+            baseline_policy_version,
         )
 
-        decisions: List[HistoricalDecision] = []
-        for record in audit_records:
-            # Reconstruct roles from the stored JSON (may be None)
-            roles: List[str] = []
-            if record.roles_checked and isinstance(record.roles_checked, dict):
-                roles = list(record.roles_checked.get("roles", []))
-
-            decisions.append(
-                HistoricalDecision(
-                    id=str(record.id),
-                    subject=Subject(
-                        email=record.user_email or "unknown@example.com",
-                        roles=roles,
-                        team_id=record.team_id,
-                    ),
-                    action=record.permission,
-                    resource=Resource(
-                        type=record.resource_type or "unknown",
-                        id=record.resource_id or "unknown",
-                    ),
-                    context=Context(
-                        ip=record.ip_address,
-                        timestamp=record.timestamp,
-                    ),
-                    decision=Decision.ALLOW if record.granted else Decision.DENY,
-                    reason="Granted by policy" if record.granted else "Denied by policy",
-                    matching_policies=[],
-                    policy_version=baseline_policy_version,
-                    timestamp=record.timestamp,
-                )
+        # Mock historical decisions for testing
+        # These simulate realistic access patterns
+        mock_decisions = [
+            HistoricalDecision(
+                id=f"hist-{i}",
+                subject=Subject(
+                    email=f"user{i % 10}@example.com",
+                    roles=["developer"] if i % 3 == 0 else ["viewer"],
+                    team_id=f"team-{i % 3}",
+                ),
+                action="tools.invoke" if i % 2 == 0 else "resources.read",
+                resource=Resource(
+                    type="tool" if i % 2 == 0 else "resource",
+                    id=f"resource-{i % 5}",
+                    server=f"server-{i % 2}",
+                ),
+                context=Context(
+                    ip=f"192.168.1.{i % 255}",
+                    timestamp=datetime.now(timezone.utc) - timedelta(days=i % replay_last_days),
+                ),
+                decision=Decision.ALLOW if i % 4 != 0 else Decision.DENY,
+                reason="Historical policy decision" if i % 4 != 0 else "Access denied by policy",
+                matching_policies=[f"policy-{i % 3}"],
+                policy_version=baseline_policy_version,
+                timestamp=datetime.now(timezone.utc) - timedelta(days=i % replay_last_days),
             )
+            for i in range(min(sample_size, 50))  # Limit mock data to 50 for performance
+        ]
 
-        return decisions
+        # Apply filters
+        if filter_by_subject:
+            mock_decisions = [d for d in mock_decisions if d.subject.email == filter_by_subject]
+        if filter_by_action:
+            mock_decisions = [d for d in mock_decisions if d.action == filter_by_action]
+
+        return mock_decisions
 
     async def _replay_and_compare(
         self,
@@ -666,7 +629,7 @@ class SandboxService:
             simulated: New simulated decision
 
         Returns:
-            str: Severity level - 'critical', 'high', 'medium', or 'low'
+            Severity level: 'critical', 'high', 'medium', 'low'
         """
         if historical == Decision.ALLOW and simulated == Decision.DENY:
             # Access was granted, now denied - HIGH severity (potential lockout)
@@ -705,91 +668,6 @@ class SandboxService:
             return f"{subject_email} will lose access to {resource.type} " f"'{resource.id}' for action '{action}'"
         else:
             return f"{subject_email} will gain access to {resource.type} " f"'{resource.id}' for action '{action}'"
-
-    # ---------------------------------------------------------------------------
-    # Test Suite CRUD Methods
-    # ---------------------------------------------------------------------------
-
-    def create_test_suite(self, suite: TestSuite, created_by: str) -> TestSuite:
-        """Persist a new test suite to the database.
-
-        Args:
-            suite: Pydantic TestSuite with name, description, test_cases, tags
-            created_by: Email of the user creating the suite
-
-        Returns:
-            The TestSuite with its persisted ID and timestamps
-        """
-        db_suite = SandboxTestSuite(
-            id=suite.id,
-            name=suite.name,
-            description=suite.description,
-            test_cases=[tc.model_dump(mode="json") for tc in suite.test_cases],
-            tags=suite.tags,
-            created_by=created_by,
-        )
-        self.db.add(db_suite)
-        self.db.flush()
-
-        logger.info("Created test suite %s (%s) by %s", db_suite.id, db_suite.name, created_by)
-
-        return self._db_suite_to_schema(db_suite)
-
-    def get_test_suite(self, suite_id: str) -> Optional[TestSuite]:
-        """Retrieve a test suite by ID.
-
-        Args:
-            suite_id: The suite's primary key
-
-        Returns:
-            TestSuite if found, None otherwise
-        """
-        db_suite = self.db.query(SandboxTestSuite).filter(SandboxTestSuite.id == suite_id).first()
-        if not db_suite:
-            return None
-        return self._db_suite_to_schema(db_suite)
-
-    def list_test_suites(self, tags: Optional[List[str]] = None) -> List[TestSuite]:
-        """List all test suites, optionally filtered by tags.
-
-        Args:
-            tags: If provided, only return suites containing ALL of these tags
-
-        Returns:
-            List of matching TestSuite objects
-        """
-        query = self.db.query(SandboxTestSuite).order_by(SandboxTestSuite.created_at.desc())
-        db_suites = query.all()
-
-        results = [self._db_suite_to_schema(s) for s in db_suites]
-
-        # Filter by tags in Python (JSON column filtering varies by RDBMS)
-        if tags:
-            results = [s for s in results if all(t in s.tags for t in tags)]
-
-        return results
-
-    @staticmethod
-    def _db_suite_to_schema(db_suite: SandboxTestSuite) -> TestSuite:
-        """Convert a SandboxTestSuite ORM instance to a Pydantic TestSuite.
-
-        Args:
-            db_suite: The ORM model instance
-
-        Returns:
-            Pydantic TestSuite
-        """
-        test_cases = [TestCase(**tc) for tc in (db_suite.test_cases or [])]
-        now = datetime.now(timezone.utc)
-        return TestSuite(
-            id=db_suite.id,
-            name=db_suite.name,
-            description=db_suite.description,
-            test_cases=test_cases,
-            tags=db_suite.tags or [],
-            created_at=db_suite.created_at or now,
-            updated_at=db_suite.updated_at or now,
-        )
 
 
 # ---------------------------------------------------------------------------
