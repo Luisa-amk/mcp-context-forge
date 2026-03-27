@@ -19308,6 +19308,113 @@ async def get_audit_partial(
     )
 
 
+@admin_router.post("/compliance/generate")
+async def admin_generate_compliance_report(
+    request: Request,
+    db: Session = Depends(get_db),
+    _user=Depends(get_current_user_with_permissions),
+):
+    """Generate a compliance report via the admin UI.
+
+    Args:
+        request: The HTTP request with JSON body containing 'framework'.
+        db: Database session.
+
+    Returns:
+        JSONResponse with the compliance report.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from mcpgateway.services.compliance_service import ComplianceFramework, get_compliance_service
+
+    body = await request.json()
+    framework_str = body.get("framework", "hipaa")
+
+    try:
+        framework = ComplianceFramework(framework_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Unknown framework: {framework_str}")
+
+    service = get_compliance_service()
+    period_end = datetime.now(timezone.utc)
+    period_start = period_end - timedelta(days=30)
+
+    report = service.generate_report(db=db, framework=framework, period_start=period_start, period_end=period_end)
+
+    controls_out = []
+    for c in report.controls:
+        controls_out.append({
+            "control_id": c.control_id,
+            "status": c.status.value,
+            "evidence": c.evidence,
+            "findings": c.findings,
+            "recommendations": c.recommendations,
+        })
+
+    return JSONResponse({
+        "id": report.id,
+        "framework": report.framework.value,
+        "generated_at": report.generated_at.isoformat(),
+        "controls": controls_out,
+        "summary": report.summary,
+    })
+
+
+@admin_router.get("/compliance/reports")
+async def admin_list_compliance_reports(
+    _user=Depends(get_current_user_with_permissions),
+):
+    """List all previously generated compliance reports.
+
+    Returns:
+        JSONResponse with list of report summaries.
+    """
+    from mcpgateway.services.compliance_service import ComplianceService
+
+    reports = []
+    for r in ComplianceService._reports.values():
+        reports.append({
+            "id": r.id,
+            "framework": r.framework.value,
+            "generated_at": r.generated_at.isoformat(),
+            "summary": r.summary,
+        })
+    return JSONResponse(reports)
+
+
+@admin_router.get("/audit/decisions")
+async def admin_list_audit_decisions(
+    request: Request,
+    db: Session = Depends(get_db),
+    _user=Depends(get_current_user_with_permissions),
+):
+    """List recent policy decisions for the audit trail.
+
+    Returns:
+        JSONResponse with list of recent decisions.
+    """
+    try:
+        from mcpgateway.services.policy_decision_service import get_policy_decision_service
+
+        service = get_policy_decision_service()
+        decisions = service.list_decisions(db=db, limit=50)
+        return JSONResponse([
+            {
+                "id": str(d.id),
+                "timestamp": d.timestamp.isoformat() if d.timestamp else None,
+                "decision": d.decision,
+                "subject_email": d.subject_email,
+                "action": d.action,
+                "resource_type": d.resource_type,
+                "resource_id": d.resource_id,
+            }
+            for d in decisions
+        ])
+    except Exception as exc:
+        logger.debug("Could not load audit decisions: %s", exc)
+        return JSONResponse([])
+
+
 @admin_router.get("/policy/partial")
 async def get_policy_partial(
     request: Request,
