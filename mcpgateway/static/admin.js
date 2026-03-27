@@ -34485,3 +34485,13 @@ document.addEventListener("click", function(e) {
   if (action === "run-policy-test") runPolicyTest();
   if (action === "delete-rule") deleteRule(el.getAttribute("data-rule-id"));
 });
+
+// Register with Alpine.js so it's available for x-data
+document.addEventListener('alpine:init', function() {
+    if (window.Alpine && window.Alpine.data) {
+        window.Alpine.data('complianceAuditDashboard', complianceAuditDashboard);
+    }
+});
+if (window.Alpine && window.Alpine.data) {
+    window.Alpine.data('complianceAuditDashboard', complianceAuditDashboard);
+}
