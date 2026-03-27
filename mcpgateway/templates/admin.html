@@ -553,13 +553,6 @@
               <span x-show="!sidebarCollapsed">Resources</span>
             </a>
             {% endif %}
-            <a href="#sandbox" id="tab-sandbox" data-testid="sandbox-tab"
-               class="sidebar-link group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors"
-               :class="{ 'justify-center': sidebarCollapsed }"
-               onclick="showTab('sandbox')">
-              <span class="sidebar-icon text-lg" :class="{ 'mr-3': !sidebarCollapsed }">🧪</span>
-              <span x-show="!sidebarCollapsed">Sandbox</span>
-            </a>
             {% if 'roots' not in hidden_sections %}
             <a href="#roots" id="tab-roots"
                class="sidebar-link group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors"
@@ -684,6 +677,15 @@
               <span class="sidebar-icon text-lg" :class="{ 'mr-3': !sidebarCollapsed }">🧩</span>
               <span x-show="!sidebarCollapsed">Plugins</span>
             </a>
+            {% endif %}
+          </div>
+          {% endif %}
+
+          <!-- Security Section -->
+          <div class="sidebar-section mt-4" x-show="!sidebarCollapsed">
+            <span class="px-3 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Security</span>
+          </div>
+          <div class="space-y-1 px-2">
 {% if 'policy' not in hidden_sections %}
             <a href="#policy" id="tab-policy" data-testid="policy-tab"
                class="sidebar-link group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors"
@@ -693,23 +695,21 @@
               <span x-show="!sidebarCollapsed">Policy Engine</span>
             </a>
             {% endif %}
+            <a href="#sandbox" id="tab-sandbox" data-testid="sandbox-tab"
+               class="sidebar-link group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors"
+               :class="{ 'justify-center': sidebarCollapsed }"
+               onclick="showTab('sandbox')">
+              <span class="sidebar-icon text-lg" :class="{ 'mr-3': !sidebarCollapsed }">🧪</span>
+              <span x-show="!sidebarCollapsed">Sandbox</span>
+            </a>
             <a href="#compliance" id="tab-compliance" data-testid="compliance-tab"
                class="sidebar-link group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors"
                :class="{ 'justify-center': sidebarCollapsed }"
                onclick="showTab('compliance')">
               <span class="sidebar-icon text-lg" :class="{ 'mr-3': !sidebarCollapsed }">📋</span>
-              <span x-show="!sidebarCollapsed">Compliance</span>
-            </a>
-            <a href="#audit" id="tab-audit" data-testid="audit-tab"
-               class="sidebar-link group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors"
-               :class="{ 'justify-center': sidebarCollapsed }"
-               onclick="showTab('audit')">
-              <span class="sidebar-icon text-lg" :class="{ 'mr-3': !sidebarCollapsed }">📜</span>
-              <span x-show="!sidebarCollapsed">Audit Trail</span>
+              <span x-show="!sidebarCollapsed">Compliance & Audit</span>
             </a>
           </div>
-          {% endif %}
-          {% endif %}
 
           <!-- Organization Section -->
           {% if email_auth_enabled and ('teams' not in hidden_sections or 'users' not in hidden_sections or 'tokens' not in hidden_sections) %}
@@ -1710,14 +1710,6 @@
       <!-- Compliance Panel -->
       <div id="compliance-panel" class="tab-panel hidden"
            hx-get="{{ root_path }}/admin/compliance/partial"
-           hx-trigger="intersect once"
-           hx-swap="innerHTML">
-        <div class="flex justify-center items-center p-12"><div class="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>
-      </div>
-
-      <!-- Audit Trail Panel -->
-      <div id="audit-panel" class="tab-panel hidden"
-           hx-get="{{ root_path }}/admin/audit/partial"
            hx-trigger="intersect once"
            hx-swap="innerHTML">
         <div class="flex justify-center items-center p-12"><div class="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>
