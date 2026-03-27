@@ -34495,3 +34495,4 @@ document.addEventListener('alpine:init', function() {
 if (window.Alpine && window.Alpine.data) {
     window.Alpine.data('complianceAuditDashboard', complianceAuditDashboard);
 }
+var complianceState = complianceAuditDashboard();
