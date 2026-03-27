@@ -34496,3 +34496,80 @@ if (window.Alpine && window.Alpine.data) {
     window.Alpine.data('complianceAuditDashboard', complianceAuditDashboard);
 }
 var complianceState = complianceAuditDashboard();
+
+// ============================================================================
+// Compliance Dashboard - Plain JS (no Alpine dependency)
+// ============================================================================
+var _complianceReports = [];
+
+function complianceGenerate(framework) {
+    var rootPath = window.location.pathname.replace(/\/admin\/?.*$/, '');
+    var errorEl = document.getElementById('compliance-error');
+    var reportEl = document.getElementById('compliance-report');
+    errorEl && errorEl.classList.add('hidden');
+
+    fetch(rootPath + '/api/compliance/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ framework: framework })
+    })
+    .then(function(resp) {
+        if (!resp.ok) return resp.json().then(function(e) { throw new Error(e.detail || 'Failed: ' + resp.status); });
+        return resp.json();
+    })
+    .then(function(report) {
+        _complianceReports.unshift(report);
+        complianceShowReport(report);
+        complianceShowHistory();
+    })
+    .catch(function(err) {
+        if (errorEl) {
+            errorEl.textContent = err.message;
+            errorEl.classList.remove('hidden');
+        }
+    });
+}
+
+function complianceShowReport(r) {
+    var el = document.getElementById('compliance-report');
+    if (!el) return;
+    el.classList.remove('hidden');
+
+    var s = r.summary || {};
+    var total = s.total_controls || 0;
+    var satisfied = s.satisfied || 0;
+    var partial = s.partial || 0;
+    var notSat = s.not_satisfied || 0;
+    var score = total > 0 ? Math.round(((satisfied + partial * 0.5) / total) * 100) : 0;
+
+    document.getElementById('report-title').textContent = 'Report: ' + (r.framework || '').toUpperCase();
+    document.getElementById('report-date').textContent = r.generated_at ? new Date(r.generated_at).toLocaleString() : '';
+    document.getElementById('report-score').textContent = score + '%';
+
+    var bar = document.getElementById('report-bar');
+    bar.style.width = score + '%';
+    bar.className = 'h-3 rounded-full transition-all duration-500 ' + (score >= 80 ? 'bg-green-500' : score >= 50 ? 'bg-yellow-500' : 'bg-red-500');
+
+    document.getElementById('count-satisfied').textContent = satisfied;
+    document.getElementById('count-partial').textContent = partial;
+    document.getElementById('count-failed').textContent = notSat;
+
+    var tbody = document.getElementById('controls-body');
+    tbody.innerHTML = '';
+    (r.controls || []).forEach(function(c) {
+        var cls = c.status === 'satisfied' ? 'text-green-600' : c.status === 'partial' ? 'text-yellow-600' : 'text-red-600';
+        tbody.innerHTML += '<tr><td class="px-2 py-1 font-mono">' + (c.control_id || '') + '</td><td class="px-2 py-1 ' + cls + ' font-medium">' + (c.status || '') + '</td><td class="px-2 py-1 text-gray-500 truncate max-w-xs">' + (c.evidence || '') + '</td></tr>';
+    });
+}
+
+function complianceShowHistory() {
+    var el = document.getElementById('report-history');
+    if (!el || _complianceReports.length === 0) return;
+    var html = '<table class="min-w-full text-xs"><thead class="bg-gray-50 dark:bg-gray-900"><tr><th class="px-3 py-2 text-left font-medium text-gray-500">Framework</th><th class="px-3 py-2 text-left font-medium text-gray-500">Date</th><th class="px-3 py-2 text-left font-medium text-gray-500">Controls</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-gray-700">';
+    _complianceReports.forEach(function(r) {
+        html += '<tr class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onclick="complianceShowReport(_complianceReports[' + _complianceReports.indexOf(r) + '])"><td class="px-3 py-2 font-medium">' + (r.framework || '').toUpperCase() + '</td><td class="px-3 py-2 text-gray-500">' + new Date(r.generated_at).toLocaleDateString() + '</td><td class="px-3 py-2">' + (r.summary?.total_controls || 0) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
