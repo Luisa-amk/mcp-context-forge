@@ -4,54 +4,46 @@
     <div class="flex justify-between items-center">
         <div>
             <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Compliance & Audit Dashboard</h2>
-            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Generate compliance reports, track policy decisions, and monitor SIEM integration</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Generate compliance reports and monitor policy decisions</p>
         </div>
-        <button @click="refreshAll()" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-sm rounded-md hover:bg-gray-300 transition">↻ Refresh All</button>
+        <button @click="refreshAll()" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-sm rounded-md hover:bg-gray-300 transition">↻ Refresh</button>
     </div>
 
-    <!-- Top Stats Row -->
-    <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+    <!-- Stats Row -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-center">
-            <div class="text-2xl font-bold text-gray-900 dark:text-white" x-text="auditStats.total || 0"></div>
-            <div class="text-xs text-gray-500">Total Decisions</div>
+            <div class="text-2xl font-bold text-blue-600" x-text="reports.length"></div>
+            <div class="text-xs text-gray-500">Reports Generated</div>
         </div>
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-center">
             <div class="text-2xl font-bold text-green-600" x-text="auditStats.allowed || 0"></div>
-            <div class="text-xs text-gray-500">Allowed</div>
+            <div class="text-xs text-gray-500">Decisions Allowed</div>
         </div>
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-center">
             <div class="text-2xl font-bold text-red-600" x-text="auditStats.denied || 0"></div>
-            <div class="text-xs text-gray-500">Denied</div>
-        </div>
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-center">
-            <div class="text-2xl font-bold text-blue-600" x-text="reports.length"></div>
-            <div class="text-xs text-gray-500">Reports</div>
+            <div class="text-xs text-gray-500">Decisions Denied</div>
         </div>
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-center">
             <div class="text-2xl font-bold" :class="siem_enabled ? 'text-green-600' : 'text-gray-400'" x-text="siem_enabled ? 'ON' : 'OFF'"></div>
             <div class="text-xs text-gray-500">SIEM Export</div>
         </div>
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-center">
-            <div class="text-2xl font-bold text-purple-600" x-text="auditStats.total ? Math.round((auditStats.denied / auditStats.total) * 100) + '%' : '—'"></div>
-            <div class="text-xs text-gray-500">Deny Rate</div>
-        </div>
     </div>
 
-    <!-- Two-Column Layout: Compliance Left, Audit Right -->
+    <!-- Two-Column Layout -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         <!-- LEFT: Compliance Reports -->
         <div class="space-y-4">
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white border-b pb-2">Compliance Reports</h3>
 
-            <!-- Framework Buttons -->
+            <!-- Framework Cards -->
             <div class="grid grid-cols-2 gap-3">
-                <button @click="generateReport('fedramp')" :disabled="generating"
+                <button @click="generateReport('fedramp_moderate')" :disabled="generating"
                         class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border-blue-500 hover:shadow-md transition text-left"
                         :class="{'opacity-50': generating}">
                     <div class="flex justify-between items-center">
                         <span class="font-semibold text-sm">🏛️ FedRAMP</span>
-                        <span x-show="generating && activeFramework === 'fedramp'" class="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full inline-block"></span>
+                        <span x-show="generating && activeFramework === 'fedramp_moderate'" class="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full inline-block"></span>
                     </div>
                     <p class="text-xs text-gray-500 mt-1">Federal authorization</p>
                 </button>
@@ -64,80 +56,81 @@
                     </div>
                     <p class="text-xs text-gray-500 mt-1">Healthcare compliance</p>
                 </button>
-                <button @click="generateReport('soc2')" :disabled="generating"
+                <button @click="generateReport('soc2_type2')" :disabled="generating"
                         class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border-purple-500 hover:shadow-md transition text-left"
                         :class="{'opacity-50': generating}">
                     <div class="flex justify-between items-center">
                         <span class="font-semibold text-sm">🔒 SOC2</span>
-                        <span x-show="generating && activeFramework === 'soc2'" class="animate-spin h-4 w-4 border-2 border-purple-500 border-t-transparent rounded-full inline-block"></span>
+                        <span x-show="generating && activeFramework === 'soc2_type2'" class="animate-spin h-4 w-4 border-2 border-purple-500 border-t-transparent rounded-full inline-block"></span>
                     </div>
                     <p class="text-xs text-gray-500 mt-1">Service org controls</p>
                 </button>
-                <button @click="generateReport('pci-dss')" :disabled="generating"
+                <button @click="generateReport('fedramp_high')" :disabled="generating"
                         class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border-orange-500 hover:shadow-md transition text-left"
                         :class="{'opacity-50': generating}">
                     <div class="flex justify-between items-center">
-                        <span class="font-semibold text-sm">💳 PCI-DSS</span>
-                        <span x-show="generating && activeFramework === 'pci-dss'" class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full inline-block"></span>
+                        <span class="font-semibold text-sm">🏛️ FedRAMP High</span>
+                        <span x-show="generating && activeFramework === 'fedramp_high'" class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full inline-block"></span>
                     </div>
-                    <p class="text-xs text-gray-500 mt-1">Payment card security</p>
+                    <p class="text-xs text-gray-500 mt-1">High impact systems</p>
                 </button>
             </div>
+
+            <!-- Error Message -->
+            <div x-show="error" x-cloak class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700" x-text="error"></div>
 
             <!-- Latest Report -->
             <div x-show="latestReport" x-cloak class="bg-white dark:bg-gray-800 rounded-lg shadow">
                 <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
                     <h4 class="font-semibold text-sm" x-text="'Report: ' + (latestReport?.framework?.toUpperCase() || '')"></h4>
-                    <span :class="latestReport?.overall_status === 'compliant' ? 'bg-green-100 text-green-800' : latestReport?.overall_status === 'partial' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'"
-                          class="px-2 py-1 rounded-full text-xs font-medium"
-                          x-text="latestReport?.overall_status?.toUpperCase()"></span>
+                    <span class="text-xs text-gray-500" x-text="latestReport?.generated_at ? new Date(latestReport.generated_at).toLocaleString() : ''"></span>
                 </div>
                 <!-- Score Bar -->
                 <div class="px-4 py-3">
                     <div class="flex justify-between text-xs mb-1">
                         <span class="text-gray-500">Compliance Score</span>
-                        <span class="font-bold" x-text="(latestReport?.score || 0) + '%'"></span>
+                        <span class="font-bold" x-text="getScore(latestReport) + '%'"></span>
                     </div>
                     <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
                         <div class="h-3 rounded-full transition-all duration-500"
-                             :class="latestReport?.score >= 80 ? 'bg-green-500' : latestReport?.score >= 50 ? 'bg-yellow-500' : 'bg-red-500'"
-                             :style="'width: ' + (latestReport?.score || 0) + '%'"></div>
+                             :class="getScore(latestReport) >= 80 ? 'bg-green-500' : getScore(latestReport) >= 50 ? 'bg-yellow-500' : 'bg-red-500'"
+                             :style="'width: ' + getScore(latestReport) + '%'"></div>
                     </div>
                 </div>
-                <!-- Controls -->
+                <!-- Controls Summary -->
                 <div class="px-4 pb-3 grid grid-cols-3 gap-2 text-center">
                     <div class="p-2 bg-green-50 dark:bg-green-900/20 rounded">
-                        <div class="text-lg font-bold text-green-600" x-text="latestReport?.controls_passed || 0"></div>
-                        <div class="text-xs text-gray-500">Pass</div>
+                        <div class="text-lg font-bold text-green-600" x-text="latestReport?.summary?.satisfied || 0"></div>
+                        <div class="text-xs text-gray-500">Satisfied</div>
                     </div>
                     <div class="p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded">
-                        <div class="text-lg font-bold text-yellow-600" x-text="latestReport?.controls_partial || 0"></div>
+                        <div class="text-lg font-bold text-yellow-600" x-text="latestReport?.summary?.partial || 0"></div>
                         <div class="text-xs text-gray-500">Partial</div>
                     </div>
                     <div class="p-2 bg-red-50 dark:bg-red-900/20 rounded">
-                        <div class="text-lg font-bold text-red-600" x-text="latestReport?.controls_failed || 0"></div>
-                        <div class="text-xs text-gray-500">Fail</div>
+                        <div class="text-lg font-bold text-red-600" x-text="latestReport?.summary?.not_satisfied || 0"></div>
+                        <div class="text-xs text-gray-500">Not Satisfied</div>
                     </div>
                 </div>
-                <!-- Findings -->
-                <div class="px-4 pb-4" x-show="latestReport?.findings?.length > 0">
+                <!-- Controls Detail -->
+                <div class="px-4 pb-4" x-show="latestReport?.controls?.length > 0">
                     <div class="max-h-60 overflow-y-auto">
                         <table class="min-w-full text-xs">
                             <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0">
                                 <tr>
                                     <th class="px-2 py-1 text-left font-medium text-gray-500">Control</th>
                                     <th class="px-2 py-1 text-left font-medium text-gray-500">Status</th>
-                                    <th class="px-2 py-1 text-left font-medium text-gray-500">Description</th>
+                                    <th class="px-2 py-1 text-left font-medium text-gray-500">Evidence</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-                                <template x-for="f in (latestReport?.findings || []).slice(0, 30)" :key="f.control_id">
+                                <template x-for="c in (latestReport?.controls || []).slice(0, 30)" :key="c.control_id">
                                     <tr>
-                                        <td class="px-2 py-1 font-mono" x-text="f.control_id"></td>
+                                        <td class="px-2 py-1 font-mono" x-text="c.control_id"></td>
                                         <td class="px-2 py-1">
-                                            <span :class="f.status === 'pass' ? 'text-green-600' : f.status === 'partial' ? 'text-yellow-600' : 'text-red-600'" class="font-medium" x-text="f.status"></span>
+                                            <span :class="c.status === 'satisfied' ? 'text-green-600' : c.status === 'partial' ? 'text-yellow-600' : 'text-red-600'" class="font-medium" x-text="c.status"></span>
                                         </td>
-                                        <td class="px-2 py-1 text-gray-500" x-text="f.description"></td>
+                                        <td class="px-2 py-1 text-gray-500 truncate max-w-xs" x-text="c.evidence"></td>
                                     </tr>
                                 </template>
                             </tbody>
@@ -159,7 +152,7 @@
                                 <th class="px-3 py-2 text-left font-medium text-gray-500">Framework</th>
                                 <th class="px-3 py-2 text-left font-medium text-gray-500">Date</th>
                                 <th class="px-3 py-2 text-left font-medium text-gray-500">Score</th>
-                                <th class="px-3 py-2 text-left font-medium text-gray-500">Status</th>
+                                <th class="px-3 py-2 text-left font-medium text-gray-500">Controls</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
@@ -167,10 +160,8 @@
                                 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" @click="latestReport = r">
                                     <td class="px-3 py-2 font-medium" x-text="r.framework?.toUpperCase()"></td>
                                     <td class="px-3 py-2 text-gray-500" x-text="new Date(r.generated_at).toLocaleDateString()"></td>
-                                    <td class="px-3 py-2 font-mono" x-text="(r.score||0) + '%'"></td>
-                                    <td class="px-3 py-2">
-                                        <span :class="r.overall_status === 'compliant' ? 'text-green-600' : r.overall_status === 'partial' ? 'text-yellow-600' : 'text-red-600'" x-text="r.overall_status"></span>
-                                    </td>
+                                    <td class="px-3 py-2 font-mono" x-text="getScore(r) + '%'"></td>
+                                    <td class="px-3 py-2 text-gray-500" x-text="r.summary?.total_controls || r.controls?.length || 0"></td>
                                 </tr>
                             </template>
                         </tbody>
@@ -192,7 +183,7 @@
                         <option value="deny">Deny only</option>
                     </select>
                     <input type="text" x-model="filters.email" @input.debounce.300ms="loadDecisions()"
-                           placeholder="Filter by email..." class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs">
+                           placeholder="Filter email..." class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs">
                     <input type="text" x-model="filters.action" @input.debounce.300ms="loadDecisions()"
                            placeholder="e.g. tools.read" class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs">
                     <select x-model="filters.time_range" @change="loadDecisions()" class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs">
@@ -206,12 +197,12 @@
 
             <!-- Decisions Table -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow">
-                <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                     <h4 class="font-semibold text-sm">Policy Decisions <span class="font-normal text-gray-500" x-text="'(' + decisions.length + ')'"></span></h4>
                 </div>
                 <div x-show="decisions.length === 0" class="p-6 text-center text-sm text-gray-500">
                     <p>No decisions recorded yet.</p>
-                    <p class="mt-1 text-xs">Enable with <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">POLICY_AUDIT_ENABLED=true</code></p>
+                    <p class="mt-1 text-xs">Set <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">POLICY_AUDIT_ENABLED=true</code> to log decisions.</p>
                 </div>
                 <div x-show="decisions.length > 0" class="max-h-96 overflow-y-auto">
                     <table class="min-w-full text-xs">
@@ -225,7 +216,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-                            <template x-for="d in decisions" :key="d.id">
+                            <template x-for="d in decisions" :key="d.id || Math.random()">
                                 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <td class="px-3 py-2 text-gray-500 whitespace-nowrap" x-text="d.timestamp ? new Date(d.timestamp).toLocaleTimeString() : '—'"></td>
                                     <td class="px-3 py-2">
@@ -235,7 +226,7 @@
                                     <td class="px-3 py-2 text-gray-700 dark:text-gray-300 truncate max-w-[120px]" x-text="d.subject_email || '—'"></td>
                                     <td class="px-3 py-2 font-mono" x-text="d.action || '—'"></td>
                                     <td class="px-3 py-2">
-                                        <span class="text-gray-500" x-text="d.resource_type"></span>/<span class="text-gray-700 dark:text-gray-300" x-text="d.resource_id || '*'"></span>
+                                        <span class="text-gray-500" x-text="d.resource_type || ''"></span>/<span class="text-gray-700 dark:text-gray-300" x-text="d.resource_id || '*'"></span>
                                     </td>
                                 </tr>
                             </template>
@@ -250,13 +241,11 @@
 <script>
 function complianceAuditDashboard() {
     return {
-        // Compliance state
         reports: [],
         latestReport: null,
         generating: false,
         activeFramework: null,
-
-        // Audit state
+        error: null,
         decisions: [],
         auditStats: { total: 0, allowed: 0, denied: 0 },
         siem_enabled: false,
@@ -265,12 +254,20 @@ function complianceAuditDashboard() {
         async init() {
             await Promise.all([this.loadReports(), this.loadDecisions(), this.loadStats()]);
         },
-
         async refreshAll() {
             await Promise.all([this.loadReports(), this.loadDecisions(), this.loadStats()]);
         },
 
-        // --- Compliance ---
+        getScore(report) {
+            if (!report || !report.summary) return 0;
+            const s = report.summary;
+            const total = s.total_controls || 0;
+            if (total === 0) return 0;
+            const satisfied = s.satisfied || 0;
+            const partial = s.partial || 0;
+            return Math.round(((satisfied + partial * 0.5) / total) * 100);
+        },
+
         async loadReports() {
             try {
                 const resp = await fetch('{{ root_path }}/api/compliance/reports', { credentials: 'include' });
@@ -281,6 +278,7 @@ function complianceAuditDashboard() {
         async generateReport(framework) {
             this.generating = true;
             this.activeFramework = framework;
+            this.error = null;
             try {
                 const resp = await fetch('{{ root_path }}/api/compliance/reports', {
                     method: 'POST',
@@ -292,13 +290,13 @@ function complianceAuditDashboard() {
                     this.latestReport = await resp.json();
                     await this.loadReports();
                 } else {
-                    console.error('Report failed:', await resp.text());
+                    const err = await resp.json().catch(() => ({}));
+                    this.error = err.detail || 'Report generation failed (' + resp.status + ')';
                 }
-            } catch (e) { console.error('Report error:', e); }
+            } catch (e) { this.error = e.message; }
             finally { this.generating = false; this.activeFramework = null; }
         },
 
-        // --- Audit ---
         async loadDecisions() {
             try {
                 const params = new URLSearchParams();
@@ -306,7 +304,6 @@ function complianceAuditDashboard() {
                 if (this.filters.email) params.set('email', this.filters.email);
                 if (this.filters.action) params.set('action', this.filters.action);
                 params.set('time_range', this.filters.time_range);
-
                 const resp = await fetch('{{ root_path }}/api/policy-decisions/decisions?' + params, { credentials: 'include' });
                 if (resp.ok) {
                     const data = await resp.json();

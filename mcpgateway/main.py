@@ -10767,18 +10767,26 @@ if settings.metrics_cleanup_enabled or settings.metrics_rollup_enabled:
     app.include_router(metrics_maintenance_router)
     logger.info("Metrics maintenance router included - cleanup/rollup API endpoints enabled")
 
-# Conditionally include policy decisions router if policy audit is enabled
-if settings.policy_audit_enabled:
-    try:
-        # First-Party
-        from mcpgateway.routers.policy_decisions_api import health_router as policy_health_router  # noqa: E402
-        from mcpgateway.routers.policy_decisions_api import router as policy_decisions_router  # noqa: E402
+# Include compliance report router
+try:
+    from mcpgateway.routers.compliance_router import router as compliance_router  # noqa: E402
 
-        app.include_router(policy_decisions_router)
-        app.include_router(policy_health_router)
-        logger.info("Policy decisions router included - policy audit enabled")
-    except ImportError as e:
-        logger.warning(f"Failed to import policy decisions router: {e}")
+    app.include_router(compliance_router, prefix="/api")
+    logger.info("Compliance router included at /api/compliance")
+except ImportError as e:
+    logger.warning(f"Failed to import compliance router: {e}")
+
+# Include policy decisions / audit trail router (always enabled)
+try:
+    # First-Party
+    from mcpgateway.routers.policy_decisions_api import health_router as policy_health_router  # noqa: E402
+    from mcpgateway.routers.policy_decisions_api import router as policy_decisions_router  # noqa: E402
+
+    app.include_router(policy_decisions_router)
+    app.include_router(policy_health_router)
+    logger.info("Policy decisions router included - audit trail enabled")
+except ImportError as e:
+    logger.warning(f"Failed to import policy decisions router: {e}")
 
 # Conditionally include A2A router if A2A features are enabled
 if settings.mcpgateway_a2a_enabled:

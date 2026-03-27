@@ -17,12 +17,12 @@ Examples:
 
 # Standard
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Generator, List, Optional
 
 # Third-Party
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 # First-Party
@@ -82,13 +82,13 @@ class GenerateReportRequest(BaseModel):
 
     Attributes:
         framework: Compliance framework to assess
-        period_start: UTC start of assessment period
-        period_end: UTC end of assessment period
+        period_start: UTC start of assessment period (defaults to 30 days ago)
+        period_end: UTC end of assessment period (defaults to now)
     """
 
     framework: ComplianceFramework
-    period_start: datetime
-    period_end: datetime
+    period_start: datetime = Field(default_factory=lambda: datetime.now(timezone.utc) - timedelta(days=30))
+    period_end: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ControlEvidenceResponse(BaseModel):
