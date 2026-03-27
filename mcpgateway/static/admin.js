@@ -34500,7 +34500,7 @@ var complianceState = complianceAuditDashboard();
 // ============================================================================
 // Compliance Dashboard - Plain JS (no Alpine dependency)
 // ============================================================================
-var _complianceReports = [];
+window.window._complianceReports = [];
 
 function complianceGenerate(framework) {
     var rootPath = window.location.pathname.replace(/\/admin\/?.*$/, '');
@@ -34519,7 +34519,7 @@ function complianceGenerate(framework) {
         return resp.json();
     })
     .then(function(report) {
-        _complianceReports.unshift(report);
+        window._complianceReports.unshift(report);
         complianceShowReport(report);
         complianceShowHistory();
     })
@@ -34565,10 +34565,10 @@ function complianceShowReport(r) {
 
 function complianceShowHistory() {
     var el = document.getElementById('report-history');
-    if (!el || _complianceReports.length === 0) return;
+    if (!el || window._complianceReports.length === 0) return;
     var html = '<table class="min-w-full text-xs"><thead class="bg-gray-50 dark:bg-gray-900"><tr><th class="px-3 py-2 text-left font-medium text-gray-500">Framework</th><th class="px-3 py-2 text-left font-medium text-gray-500">Date</th><th class="px-3 py-2 text-left font-medium text-gray-500">Controls</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-gray-700">';
-    _complianceReports.forEach(function(r) {
-        html += '<tr class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onclick="complianceShowReport(_complianceReports[' + _complianceReports.indexOf(r) + '])"><td class="px-3 py-2 font-medium">' + (r.framework || '').toUpperCase() + '</td><td class="px-3 py-2 text-gray-500">' + new Date(r.generated_at).toLocaleDateString() + '</td><td class="px-3 py-2">' + (r.summary?.total_controls || 0) + '</td></tr>';
+    window._complianceReports.forEach(function(r) {
+        html += '<tr class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onclick="complianceShowReport(window._complianceReports[' + window._complianceReports.indexOf(r) + '])"><td class="px-3 py-2 font-medium">' + (r.framework || '').toUpperCase() + '</td><td class="px-3 py-2 text-gray-500">' + new Date(r.generated_at).toLocaleDateString() + '</td><td class="px-3 py-2">' + (r.summary?.total_controls || 0) + '</td></tr>';
     });
     html += '</tbody></table>';
     el.innerHTML = html;
