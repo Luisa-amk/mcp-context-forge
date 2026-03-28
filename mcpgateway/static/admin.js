@@ -34382,6 +34382,17 @@ async function submitAddRule() {
     reason: document.getElementById("rule-reason").value.trim(),
     conditions: {}
   };
+  // Collect ABAC conditions
+  var mfa = document.getElementById("rule-cond-mfa");
+  if (mfa && mfa.value) rule.conditions["subject.mfa_verified"] = mfa.value === "true";
+  var ip = document.getElementById("rule-cond-ip");
+  if (ip && ip.value.trim()) rule.conditions["context.ip_prefix"] = ip.value.trim();
+  var team = document.getElementById("rule-cond-team");
+  if (team && team.value.trim()) rule.conditions["subject.team_id"] = team.value.trim();
+  var clearance = document.getElementById("rule-cond-clearance");
+  if (clearance && clearance.value) rule.conditions["subject.clearance_level"] = parseInt(clearance.value);
+  var emailPrefix = document.getElementById("rule-cond-email-prefix");
+  if (emailPrefix && emailPrefix.value.trim()) rule.conditions["subject.email_prefix"] = emailPrefix.value.trim();
   try {
     const resp = await fetch(`${policyRootPath}/admin/policy/rules`, {
       method: "POST", credentials: "same-origin",
