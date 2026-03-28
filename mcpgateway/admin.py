@@ -19393,25 +19393,25 @@ async def admin_list_audit_decisions(
     Returns:
         JSONResponse with list of recent decisions.
     """
+    import logging as _log
     try:
-        from mcpgateway.services.policy_decision_service import get_policy_decision_service
-
-        service = get_policy_decision_service()
-        decisions = service.list_decisions(db=db, limit=50)
+        from mcpgateway.services.policy_decision_service import PolicyDecisionService
+        service = PolicyDecisionService(db=db)
+        decisions = service.list_decisions(limit=50)
         return JSONResponse([
             {
-                "id": str(d.id),
-                "timestamp": d.timestamp.isoformat() if d.timestamp else None,
-                "decision": d.decision,
-                "subject_email": d.subject_email,
-                "action": d.action,
-                "resource_type": d.resource_type,
-                "resource_id": d.resource_id,
+                "id": str(getattr(d, "id", "")),
+                "timestamp": d.timestamp.isoformat() if hasattr(d, "timestamp") and d.timestamp else None,
+                "decision": getattr(d, "decision", ""),
+                "subject_email": getattr(d, "subject_email", ""),
+                "action": getattr(d, "action", ""),
+                "resource_type": getattr(d, "resource_type", ""),
+                "resource_id": getattr(d, "resource_id", ""),
             }
             for d in decisions
         ])
     except Exception as exc:
-        logger.debug("Could not load audit decisions: %s", exc)
+        _log.getLogger(__name__).debug("Could not load audit decisions: %s", exc)
         return JSONResponse([])
 
 
@@ -19574,6 +19574,7 @@ async def delete_policy_rule(
 async def test_policy_access(
     request: Request,
     body: PolicyTestRequest,
+    db: Session = Depends(get_db),
     _user=Depends(get_current_user_with_permissions),
 ):
     """Simulate an access decision through the full PDP pipeline.
@@ -19600,6 +19601,27 @@ async def test_policy_access(
     context = Context(ip=body.ip)
 
     decision = await pdp.check_access(subject, body.action, resource, context)
+
+    # Log the decision to the audit trail
+    try:
+        from mcpgateway.services.policy_decision_service import PolicyDecisionService
+        audit_svc = PolicyDecisionService()
+        audit_svc.log_decision(
+            action=body.action,
+            decision=decision.decision.value,
+            subject_email=body.subject_email,
+            subject_roles=body.subject_roles,
+            resource_type=body.resource_type,
+            resource_id=body.resource_id,
+            ip_address=body.ip,
+            reason=decision.reason,
+            matching_policies=decision.matching_policies,
+            duration_ms=decision.duration_ms,
+            db=db,
+        )
+    except Exception as _audit_err:
+        import logging as _alog
+        _alog.getLogger(__name__).debug("Audit log failed: %s", _audit_err)
 
     return JSONResponse({
         "decision": decision.decision.value,
