@@ -544,33 +544,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 
-    // Re-initialize Alpine.js for compliance panel
-    document.body.addEventListener("htmx:afterSettle", function (event) {
-        const target = event.detail.target;
-        if (target && (target.id === "compliance-panel" || (target.closest && target.closest("#compliance-panel")))) {
-            setTimeout(function () {
-                // Execute any script tags in the swapped content
-                const scripts = target.querySelectorAll("script");
-                scripts.forEach(function (script) {
-                    const newScript = document.createElement("script");
-                    newScript.textContent = script.textContent;
-                    document.head.appendChild(newScript).parentNode.removeChild(newScript);
-                });
-                if (window.Alpine && typeof window.Alpine.initTree === "function") {
-                    try {
-                        const panel = document.getElementById("compliance-panel");
-                        if (panel) {
-                            window.Alpine.initTree(panel);
-                            console.log("📋 Alpine.js re-initialized for compliance panel");
-                        }
-                    } catch (err) {
-                        console.warn("Alpine re-init failed for compliance panel:", err);
-                    }
-                }
-            }, 100);
-        }
-    });
-
     // Initialize search when switching tabs
     document.addEventListener("click", function (event) {
         if (
@@ -34450,12 +34423,8 @@ async function runPolicyTest() {
   const resourceType = document.getElementById("test-resource-type").value.trim();
   const resourceId = document.getElementById("test-resource-id").value.trim();
   const ip = document.getElementById("test-ip").value.trim() || "127.0.0.1";
-  const teamId = document.getElementById("test-team-id") ? document.getElementById("test-team-id").value.trim() : "";
-  const clearance = document.getElementById("test-clearance") ? document.getElementById("test-clearance").value : "";
-  const mfa = document.getElementById("test-mfa") ? document.getElementById("test-mfa").value === "true" : false;
-  const userAgent = document.getElementById("test-user-agent") ? document.getElementById("test-user-agent").value.trim() : "";
   if (!email || !action || !resourceType || !resourceId) { alert("Please fill in Email, Action, Resource Type and Resource ID."); return; }
-  const payload = { subject_email: email, subject_roles: rolesRaw ? rolesRaw.split(",").map(s => s.trim()).filter(Boolean) : [], action, resource_type: resourceType, resource_id: resourceId, ip, team_id: teamId || undefined, clearance_level: clearance ? parseInt(clearance) : undefined, mfa_verified: mfa, user_agent: userAgent || undefined };
+  const payload = { subject_email: email, subject_roles: rolesRaw ? rolesRaw.split(",").map(s => s.trim()).filter(Boolean) : [], action, resource_type: resourceType, resource_id: resourceId, ip };
   try {
     const resp = await fetch(`${policyRootPath}/admin/policy/test`, {
       method: "POST", credentials: "same-origin",
@@ -34528,103 +34497,90 @@ document.addEventListener("click", function(e) {
   if (action === "delete-rule") deleteRule(el.getAttribute("data-rule-id"));
 });
 
-// ============================================================================
-// Compliance & Audit Dashboard (Alpine.js component)
-// ============================================================================
-function complianceAuditDashboard() {
-    const rootPath = window.location.pathname.replace(/\/admin\/?.*$/, '');
-    return {
-        reports: [],
-        latestReport: null,
-        generating: false,
-        activeFramework: null,
-        error: null,
-        decisions: [],
-        auditStats: { total: 0, allowed: 0, denied: 0 },
-        siem_enabled: false,
-        filters: { decision: '', email: '', action: '', time_range: '24h' },
-
-        async init() {
-            await Promise.all([this.loadReports(), this.loadDecisions(), this.loadStats()]);
-        },
-        async refreshAll() {
-            await Promise.all([this.loadReports(), this.loadDecisions(), this.loadStats()]);
-        },
-
-        getScore(report) {
-            if (!report || !report.summary) return 0;
-            const s = report.summary;
-            const total = s.total_controls || 0;
-            if (total === 0) return 0;
-            const satisfied = s.satisfied || 0;
-            const partial = s.partial || 0;
-            return Math.round(((satisfied + partial * 0.5) / total) * 100);
-        },
-
-        async loadReports() {
-            try {
-                const resp = await fetch(rootPath + '/api/compliance/reports', { credentials: 'include' });
-                if (resp.ok) this.reports = await resp.json();
-            } catch (e) { console.warn('Could not load reports:', e); }
-        },
-
-        async generateReport(framework) {
-            this.generating = true;
-            this.activeFramework = framework;
-            this.error = null;
-            try {
-                const resp = await fetch(rootPath + '/api/compliance/reports', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ framework: framework })
-                });
-                if (resp.ok) {
-                    this.latestReport = await resp.json();
-                    await this.loadReports();
-                } else {
-                    const err = await resp.json().catch(() => ({}));
-                    this.error = err.detail || 'Report generation failed (' + resp.status + ')';
-                }
-            } catch (e) { this.error = e.message; }
-            finally { this.generating = false; this.activeFramework = null; }
-        },
-
-        async loadDecisions() {
-            try {
-                const params = new URLSearchParams();
-                if (this.filters.decision) params.set('decision', this.filters.decision);
-                if (this.filters.email) params.set('email', this.filters.email);
-                if (this.filters.action) params.set('action', this.filters.action);
-                params.set('time_range', this.filters.time_range);
-                const resp = await fetch(rootPath + '/api/policy-decisions/decisions?' + params, { credentials: 'include' });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    this.decisions = Array.isArray(data) ? data : (data.decisions || []);
-                }
-            } catch (e) { console.warn('Could not load decisions:', e); }
-        },
-
-        async loadStats() {
-            try {
-                const resp = await fetch(rootPath + '/api/policy-decisions/health', { credentials: 'include' });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    this.auditStats = data.stats || this.auditStats;
-                    this.siem_enabled = data.siem_enabled || false;
-                }
-            } catch (e) { console.warn('Could not load stats:', e); }
-        }
-    };
-}
-
 // Register with Alpine.js so it's available for x-data
 document.addEventListener('alpine:init', function() {
     if (window.Alpine && window.Alpine.data) {
         window.Alpine.data('complianceAuditDashboard', complianceAuditDashboard);
     }
 });
-// Also register immediately if Alpine already loaded
 if (window.Alpine && window.Alpine.data) {
     window.Alpine.data('complianceAuditDashboard', complianceAuditDashboard);
+}
+var complianceState = complianceAuditDashboard();
+
+// ============================================================================
+// Compliance Dashboard - Plain JS (no Alpine dependency)
+// ============================================================================
+window.window._complianceReports = [];
+
+function complianceGenerate(framework) {
+    var rootPath = window.location.pathname.replace(/\/admin\/?.*$/, '');
+    var errorEl = document.getElementById('compliance-error');
+    var reportEl = document.getElementById('compliance-report');
+    errorEl && errorEl.classList.add('hidden');
+
+    fetch(rootPath + '/api/compliance/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ framework: framework })
+    })
+    .then(function(resp) {
+        if (!resp.ok) return resp.json().then(function(e) { throw new Error(e.detail || 'Failed: ' + resp.status); });
+        return resp.json();
+    })
+    .then(function(report) {
+        window._complianceReports.unshift(report);
+        complianceShowReport(report);
+        complianceShowHistory();
+    })
+    .catch(function(err) {
+        if (errorEl) {
+            errorEl.textContent = err.message;
+            errorEl.classList.remove('hidden');
+        }
+    });
+}
+
+function complianceShowReport(r) {
+    var el = document.getElementById('compliance-report');
+    if (!el) return;
+    el.classList.remove('hidden');
+
+    var s = r.summary || {};
+    var total = s.total_controls || 0;
+    var satisfied = s.satisfied || 0;
+    var partial = s.partial || 0;
+    var notSat = s.not_satisfied || 0;
+    var score = total > 0 ? Math.round(((satisfied + partial * 0.5) / total) * 100) : 0;
+
+    document.getElementById('report-title').textContent = 'Report: ' + (r.framework || '').toUpperCase();
+    document.getElementById('report-date').textContent = r.generated_at ? new Date(r.generated_at).toLocaleString() : '';
+    document.getElementById('report-score').textContent = score + '%';
+
+    var bar = document.getElementById('report-bar');
+    bar.style.width = score + '%';
+    bar.className = 'h-3 rounded-full transition-all duration-500 ' + (score >= 80 ? 'bg-green-500' : score >= 50 ? 'bg-yellow-500' : 'bg-red-500');
+
+    document.getElementById('count-satisfied').textContent = satisfied;
+    document.getElementById('count-partial').textContent = partial;
+    document.getElementById('count-failed').textContent = notSat;
+
+    var tbody = document.getElementById('controls-body');
+    tbody.innerHTML = '';
+    (r.controls || []).forEach(function(c) {
+        var cls = c.status === 'satisfied' ? 'text-green-600' : c.status === 'partial' ? 'text-yellow-600' : 'text-red-600';
+        tbody.innerHTML += '<tr><td class="px-2 py-1 font-mono">' + (c.control_id || '') + '</td><td class="px-2 py-1 ' + cls + ' font-medium">' + (c.status || '') + '</td><td class="px-2 py-1 text-gray-500 truncate max-w-xs">' + (c.evidence || '') + '</td></tr>';
+    });
+}
+
+function complianceShowHistory() {
+    var el = document.getElementById('report-history');
+    if (!el || window._complianceReports.length === 0) return;
+    var html = '<table class="min-w-full text-xs"><thead class="bg-gray-50 dark:bg-gray-900"><tr><th class="px-3 py-2 text-left font-medium text-gray-500">Framework</th><th class="px-3 py-2 text-left font-medium text-gray-500">Date</th><th class="px-3 py-2 text-left font-medium text-gray-500">Controls</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-gray-700">';
+    window._complianceReports.forEach(function(r) {
+        html += '<tr class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onclick="complianceShowReport(window._complianceReports[' + window._complianceReports.indexOf(r) + '])"><td class="px-3 py-2 font-medium">' + (r.framework || '').toUpperCase() + '</td><td class="px-3 py-2 text-gray-500">' + new Date(r.generated_at).toLocaleDateString() + '</td><td class="px-3 py-2">' + (r.summary?.total_controls || 0) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
 }

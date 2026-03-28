@@ -171,36 +171,6 @@
           <input id="test-ip" type="text" placeholder="127.0.0.1"
             class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
         </div>
-        <!-- ABAC Test Fields -->
-        <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
-          <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">ABAC Attributes</label>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs text-gray-500 mb-1">Team ID</label>
-              <input id="test-team-id" type="text" placeholder="engineering"
-                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-            <div>
-              <label class="block text-xs text-gray-500 mb-1">Clearance Level</label>
-              <input id="test-clearance" type="number" placeholder="0"
-                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3 mt-2">
-            <div>
-              <label class="block text-xs text-gray-500 mb-1">MFA Verified</label>
-              <select id="test-mfa" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                <option value="false">No</option>
-                <option value="true">Yes</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs text-gray-500 mb-1">User Agent</label>
-              <input id="test-user-agent" type="text" placeholder="Mozilla/5.0..."
-                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-          </div>
-        </div>
         <button data-action="run-policy-test"
           class="w-full px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors">
           Test Access →
