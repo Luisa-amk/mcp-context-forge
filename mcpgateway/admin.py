@@ -19396,8 +19396,8 @@ async def admin_list_audit_decisions(
     import logging as _log
     try:
         from mcpgateway.services.policy_decision_service import PolicyDecisionService
-        service = PolicyDecisionService(db=db)
-        decisions = service.list_decisions(limit=50)
+        service = PolicyDecisionService()
+        decisions = service.query_decisions(db=db, limit=50)
         return JSONResponse([
             {
                 "id": str(getattr(d, "id", "")),
@@ -19411,7 +19411,7 @@ async def admin_list_audit_decisions(
             for d in decisions
         ])
     except Exception as exc:
-        _log.getLogger(__name__).debug("Could not load audit decisions: %s", exc)
+        _log.getLogger(__name__).error("Could not load audit decisions: %s", exc, exc_info=True)
         return JSONResponse([])
 
 
