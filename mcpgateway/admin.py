@@ -19397,7 +19397,7 @@ async def admin_list_audit_decisions(
     try:
         from mcpgateway.services.policy_decision_service import PolicyDecisionService
         service = PolicyDecisionService()
-        decisions = service.query_decisions(db=db, limit=50)
+        decisions = service.query_decisions(db=db, limit=100)
         return JSONResponse([
             {
                 "id": str(getattr(d, "id", "")),
