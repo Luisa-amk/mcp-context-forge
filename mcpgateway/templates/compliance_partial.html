@@ -140,9 +140,9 @@
 
         var s = r.summary || {};
         var total = s.total_controls || 0;
-        var sat = s.satisfied || 0;
+        var sat = s.implemented || s.satisfied || 0;
         var part = s.partial || 0;
-        var notsat = s.not_satisfied || 0;
+        var notsat = s.not_implemented || s.not_satisfied || 0;
         var score = total > 0 ? Math.round(((sat + part * 0.5) / total) * 100) : 0;
 
         document.getElementById('cr-score').textContent = score + '%';
